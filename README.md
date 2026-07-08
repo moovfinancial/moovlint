@@ -9,6 +9,8 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `spanevents` | shipping | Detects `logger.Info().Log()`/`logger.Warn().Log()` calls in service/repo code and suggests `telemetry.AddEvent` or `telemetry.RecordError`. |
 | `spanrequired` | shipping | Checks exported methods on service structs taking `context.Context` have a `telemetry.StartSpan` call. Advisory severity while false-positive rate is calibrated. |
 | `mockcheck` | shipping | Detects hand-rolled `mock*`/`fake*`/`stub*` test structs that implement interfaces from their own Go package; uses `test.NewEnvironment`, `eventingtest`, or real services instead. |
+| `errswallow` | shipping | Detects `_ = <call>` assignments where the call returns an error — surfaces silently-swallowed errors that `errcheck` would not (because repo-wide config disables it). |
+| `thelper` | shipping | Requires test helpers that call `t.Fatal`/`t.Error`/require/assert to call `t.Helper()` as their first statement so failure reports point at the caller. |
 
 ## Development
 
