@@ -5,6 +5,7 @@ import (
 	"github.com/moovfinancial/moovlint/analyzers/mockcheck"
 	"github.com/moovfinancial/moovlint/analyzers/spanevents"
 	"github.com/moovfinancial/moovlint/analyzers/spanrequired"
+	"github.com/moovfinancial/moovlint/analyzers/testify-subtest-assertion"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -23,6 +24,7 @@ func (p *Plugin) BuildAnalyzers() ([]*analysis.Analyzer, error) {
 		spanevents.Analyzer,
 		spanrequired.Analyzer,
 		mockcheck.Analyzer,
+		testifysubtestassertion.Analyzer,
 	}, nil
 }
 
