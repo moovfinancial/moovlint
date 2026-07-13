@@ -18,6 +18,20 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `midusage` | shipping | Detects `mid.MustParseID` usage outside test files. |
 | `oteltags` | shipping | Checks that `otel` struct tags use lower snake case and do not include `omitempty`; flags map/slice-of-struct/nested types. |
 | `controllerassert` | shipping | Checks that HTTP controller structs with `AppendRoutes` have a compile-time interface assertion. |
+| `repoerrorflags` | advisory | Checks that repository methods flag expected database errors (AlreadyExists→NotUnique, NotFound→NotFound) with the correct `errors.Flag`. |
+| `timeinject` | shipping | Detects `time.Now()` calls in service methods that have a `stime.TimeService` field on their receiver. |
+| `contextcancel` | shipping | Checks that `context.WithCancel`/`WithTimeout`/`WithDeadline` results have a corresponding `defer cancel()`. |
+| `nolintguard` | shipping | Checks that `//nolint` directives target a specific linter and include an explanation. |
+
+## Repository checks
+
+Non-Go file checks run via `moovlint repo [path]`:
+
+| Checker | Description |
+|---|---|
+| `migrations` | Sequential naming, no `IF NOT EXISTS`, no direct renames, no `NOT NULL` without `DEFAULT`. |
+| `structtags` | JSON tags use camelCase, preserve `ID` casing, timestamps use `On`/`At` suffix. |
+| `protobuf` | Field numbers are permanent and unique; gaps between numbers are reserved. |
 
 ## Development
 
@@ -26,6 +40,7 @@ make check         # Run lint + test (CI gate)
 make test          # Run analyzer tests (analysistest)
 make build         # Compile everything
 make custom-gcl    # Build custom golangci-lint binary with moovlint plugins
+moovlint repo .    # Run repository-level checks (migrations, structtags, protobuf)
 ```
 
 ## Adding an analyzer
