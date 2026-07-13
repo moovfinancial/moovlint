@@ -2,12 +2,18 @@ package telemetry
 
 import "context"
 
-func StartSpan(ctx context.Context, spanName string, opts ...any) (context.Context, any) {
-	return ctx, nil
+type Span struct{}
+
+func (s Span) End(opts ...any)                 {}
+func (s Span) SetName(name string)             {}
+func (s Span) RecordError(err error, opts ...any) {}
+
+func StartSpan(ctx context.Context, spanName string, opts ...any) (context.Context, Span) {
+	return ctx, Span{}
 }
 
-func StartLinkedRootSpan(ctx context.Context, name string, opts ...any) any {
-	return nil
+func StartLinkedRootSpan(ctx context.Context, name string, opts ...any) Span {
+	return Span{}
 }
 
 func AddEvent(ctx context.Context, name string, opts ...any) {}

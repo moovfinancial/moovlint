@@ -3,9 +3,9 @@ package spanrequired
 import (
 	"fmt"
 	"go/ast"
-	"go/types"
 	"strings"
 
+	"github.com/moovfinancial/moovlint/internal/moovutil"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -18,7 +18,7 @@ var Analyzer = &analysis.Analyzer{
 func run(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
 		filename := pass.Fset.Position(file.Package).Filename
-		if strings.HasSuffix(filename, "_test.go") {
+		if moovutil.IsTestFile(filename) {
 			continue
 		}
 
@@ -28,26 +28,20 @@ func run(pass *analysis.Pass) (any, error) {
 				return true
 			}
 
-			if funcDecl.Recv == nil || len(funcDecl.Recv.List) == 0 {
-				return true
-			}
-
-			recvType := funcDecl.Recv.List[0].Type
-			recvObj := typeToObject(pass, recvType)
+			recvObj := moovutil.ReceiverTypeName(pass, funcDecl)
 			if recvObj == nil || recvObj.Pkg() == nil {
 				return true
 			}
 
-			recvPkg := recvObj.Pkg().Path()
-			if !isServicePackage(recvPkg) {
+			if !moovutil.IsServicePackage(recvObj.Pkg().Path()) {
 				return true
 			}
 
-			if !hasContextFirstParam(funcDecl) {
+			if !moovutil.HasContextFirstParam(pass, funcDecl) {
 				return true
 			}
 
-			if hasSpanCall(funcDecl) {
+			if hasTelemetrySpanCall(pass, funcDecl) {
 				return true
 			}
 
@@ -62,44 +56,7 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func typeToObject(pass *analysis.Pass, expr ast.Expr) *types.TypeName {
-	tv, ok := pass.TypesInfo.Types[expr]
-	if !ok {
-		return nil
-	}
-	t := tv.Type
-	for {
-		ptr, ok := t.(*types.Pointer)
-		if !ok {
-			break
-		}
-		t = ptr.Elem()
-	}
-	named, ok := t.(*types.Named)
-	if !ok {
-		return nil
-	}
-	return named.Obj()
-}
-
-func hasContextFirstParam(fn *ast.FuncDecl) bool {
-	params := fn.Type.Params
-	if params == nil || len(params.List) == 0 {
-		return false
-	}
-	first := params.List[0]
-	sel, ok := first.Type.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	pkgIdent, ok := sel.X.(*ast.Ident)
-	if !ok {
-		return false
-	}
-	return pkgIdent.Name == "context" && sel.Sel.Name == "Context"
-}
-
-func hasSpanCall(fn *ast.FuncDecl) bool {
+func hasTelemetrySpanCall(pass *analysis.Pass, fn *ast.FuncDecl) bool {
 	found := false
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		if found {
@@ -114,7 +71,11 @@ func hasSpanCall(fn *ast.FuncDecl) bool {
 			return true
 		}
 		name := sel.Sel.Name
-		if name == "StartSpan" || name == "StartLinkedRootSpan" {
+		if name != "StartSpan" && name != "StartLinkedRootSpan" {
+			return true
+		}
+		pkgPath := moovutil.SelectorPackagePath(pass, sel)
+		if moovutil.IsTelemetryPackage(pkgPath) {
 			found = true
 			return false
 		}
@@ -123,35 +84,13 @@ func hasSpanCall(fn *ast.FuncDecl) bool {
 	return found
 }
 
-func isServicePackage(pkgPath string) bool {
-	// Service/repo/client/consumer packages live under a moovfinancial or moov-io root.
-	// We exclude common non-service patterns.
-	if strings.Contains(pkgPath, "test") && strings.HasSuffix(pkgPath, "test") {
-		return false
-	}
-	excluded := []string{
-		"/cmd/",
-		"/docs/",
-		"/examples/",
-		"/scripts/",
-		"/mocks",
-		"/mock",
-	}
-	for _, e := range excluded {
-		if strings.Contains(pkgPath, e) {
-			return false
-		}
-	}
-	return true
-}
-
 func lowerKebab(name string) string {
 	var result []rune
 	for i, r := range name {
 		if i > 0 && r >= 'A' && r <= 'Z' {
-			result = append(result, '_')
+			result = append(result, '-')
 		}
 		result = append(result, r)
 	}
-	return strings.ToLower(strings.ReplaceAll(string(result), "_", "-"))
+	return strings.ToLower(string(result))
 }

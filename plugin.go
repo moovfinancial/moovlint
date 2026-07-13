@@ -2,9 +2,6 @@ package linters
 
 import (
 	"github.com/golangci/plugin-module-register/register"
-	"github.com/moovfinancial/moovlint/analyzers/mockcheck"
-	"github.com/moovfinancial/moovlint/analyzers/spanevents"
-	"github.com/moovfinancial/moovlint/analyzers/spanrequired"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -19,11 +16,7 @@ func New(settings any) (register.LinterPlugin, error) {
 }
 
 func (p *Plugin) BuildAnalyzers() ([]*analysis.Analyzer, error) {
-	return []*analysis.Analyzer{
-		spanevents.Analyzer,
-		spanrequired.Analyzer,
-		mockcheck.Analyzer,
-	}, nil
+	return AllAnalyzers(), nil
 }
 
 func (p *Plugin) GetLoadMode() string {

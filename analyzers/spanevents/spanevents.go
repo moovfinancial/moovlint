@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/moovfinancial/moovlint/internal/moovutil"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -16,6 +17,10 @@ var Analyzer = &analysis.Analyzer{
 }
 
 func run(pass *analysis.Pass) (any, error) {
+	if !moovutil.IsServicePackage(pass.Pkg.Path()) {
+		return nil, nil
+	}
+
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -78,6 +83,7 @@ func isMoovLogger(t types.Type) bool {
 		return false
 	}
 	pkg := named.Obj().Pkg().Path()
-	return strings.HasSuffix(pkg, "moov-io/base/log") ||
+	return moovutil.IsMoovLogPackage(pkg) ||
+		strings.HasSuffix(pkg, "moov-io/base/log") ||
 		strings.HasSuffix(pkg, "moovfinancial/go-libs/observability/log")
 }

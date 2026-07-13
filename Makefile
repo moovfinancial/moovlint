@@ -1,6 +1,8 @@
-.PHONY: all test lint build clean
+.PHONY: all check test lint build clean
 
 all: build test
+
+check: lint test
 
 build:
 	go build ./...
@@ -21,4 +23,4 @@ custom-gcl: .custom-gcl.example.yml
 .PHONY: testdata
 testdata:
 	@echo "Checking testdata module is buildable..."
-	cd testdata/src && go build ./...
+	cd testdata && go build ./...
