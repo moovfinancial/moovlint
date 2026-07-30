@@ -1,6 +1,7 @@
 package linters
 
 import (
+	"github.com/moovfinancial/moovlint/analyzers/blankdiscard"
 	"github.com/moovfinancial/moovlint/analyzers/contextcancel"
 	"github.com/moovfinancial/moovlint/analyzers/controllerassert"
 	"github.com/moovfinancial/moovlint/analyzers/grpcserver"
@@ -40,5 +41,6 @@ func AllAnalyzers() []*analysis.Analyzer {
 		timeinject.Analyzer,
 		contextcancel.Analyzer,
 		nolintguard.Analyzer,
+		blankdiscard.Analyzer,
 	}
 }

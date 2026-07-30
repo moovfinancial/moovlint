@@ -1,0 +1,6 @@
+# Build artifacts
+custom-gcl
+moovlint
+
+# Local configuration (use .custom-gcl.example.yml as template)
+.custom-gcl.yml

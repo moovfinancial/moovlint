@@ -2,4 +2,5 @@ version: v2.11.4
 name: custom-gcl
 plugins:
   - module: 'github.com/moovfinancial/moovlint'
-    path: /Users/benross/github.com/moovfinancial/moovlint
+    # Replace with your local moovlint checkout path
+    path: /path/to/your/moovlint
