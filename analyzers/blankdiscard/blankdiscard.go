@@ -45,10 +45,7 @@ func run(pass *analysis.Pass) (any, error) {
 			}
 
 			// Only flag function/method calls, not variable assignments
-			if len(assign.Rhs) != 1 {
-				return true
-			}
-			if _, ok := assign.Rhs[0].(*ast.CallExpr); !ok {
+			if len(assign.Rhs) != 1 && len(assign.Rhs) != len(assign.Lhs) {
 				return true
 			}
 
@@ -61,9 +58,14 @@ func run(pass *analysis.Pass) (any, error) {
 
 				// Get the corresponding RHS expression's type
 				var rhsType types.Type
+				var rhsCall *ast.CallExpr
 				if len(assign.Rhs) == 1 {
 					// Tuple assignment: _, _ = f() or x, _ = f()
 					rhsExpr := assign.Rhs[0]
+					if _, ok := rhsExpr.(*ast.CallExpr); !ok {
+						return true
+					}
+					rhsCall = rhsExpr.(*ast.CallExpr)
 					tv, ok := pass.TypesInfo.Types[rhsExpr]
 					if !ok {
 						continue
@@ -77,9 +79,15 @@ func run(pass *analysis.Pass) (any, error) {
 						// Single value assignment: _ = f()
 						rhsType = tv.Type
 					}
-				} else if i < len(assign.Rhs) {
-					// Parallel assignment: _, _ = a, b
-					tv, ok := pass.TypesInfo.Types[assign.Rhs[i]]
+				} else if len(assign.Rhs) == len(assign.Lhs) {
+					// Parallel multi-call assignment: _, _ = f(), g()
+					rhsExpr := assign.Rhs[i]
+					call, ok := rhsExpr.(*ast.CallExpr)
+					if !ok {
+						continue
+					}
+					rhsCall = call
+					tv, ok := pass.TypesInfo.Types[rhsExpr]
 					if !ok {
 						continue
 					}
@@ -96,7 +104,7 @@ func run(pass *analysis.Pass) (any, error) {
 				}
 
 				// Get the function/method name for the diagnostic
-				funcName := getFuncName(assign.Rhs)
+				funcName := getFuncNameFromCall(rhsCall)
 
 				// Check for Close() method with explanatory comment
 				if funcName == "Close" && hasExplanatoryComment(assign, comments, pass.Fset) {
@@ -136,7 +144,7 @@ func collectComments(file *ast.File, fset *token.FileSet) []commentInfo {
 }
 
 // hasExplanatoryComment checks if there's an explanatory comment on the same line or preceding line
-// It excludes "// want" comments which are test annotations
+// It excludes "// want" test annotations and validates that the comment is substantive
 func hasExplanatoryComment(assign *ast.AssignStmt, comments []commentInfo, fset *token.FileSet) bool {
 	assignLine := fset.Position(assign.Pos()).Line
 	for _, c := range comments {
@@ -145,16 +153,26 @@ func hasExplanatoryComment(assign *ast.AssignStmt, comments []commentInfo, fset 
 			if strings.Contains(c.text, "// want") {
 				continue
 			}
+			// Extract comment content (strip // or /* */ prefix and whitespace)
+			content := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(c.text, "//"), "/*"))
+			content = strings.TrimSuffix(content, "*/")
+			content = strings.TrimSpace(content)
+			// Require non-empty content
+			if content == "" {
+				continue
+			}
+			// Exclude section separators (lines containing only = or - characters)
+			if strings.Trim(content, "=-") == "" {
+				continue
+			}
 			return true
 		}
 	}
 	return false
 }
 
-// getFuncName extracts the function/method name from a single-element RHS.
-// Callers must ensure rhs contains exactly one CallExpr.
-func getFuncName(rhs []ast.Expr) string {
-	call := rhs[0].(*ast.CallExpr)
+// getFuncNameFromCall extracts the function/method name from a CallExpr.
+func getFuncNameFromCall(call *ast.CallExpr) string {
 	switch fun := call.Fun.(type) {
 	case *ast.Ident:
 		return fun.Name

@@ -189,3 +189,31 @@ func genericMultiFunc[T, U any]() error {
 func (s *Service) BadGenericMultiFunc(ctx context.Context) {
 	_ = genericMultiFunc[int, string]() // want "discarding error from genericMultiFunc via blank assignment"
 }
+
+// =============================================================================
+// Case 17: Parallel multi-call assignment - SHOULD FLAG
+// =============================================================================
+
+func (s *Service) BadParallelMultiCall(ctx context.Context) {
+	_, _ = singleError(), singleError() // want "discarding error from singleError via blank assignment" "discarding error from singleError via blank assignment"
+}
+
+// =============================================================================
+// Case 18: Close with section separator comment - SHOULD FLAG
+// =============================================================================
+
+func (s *Service) BadCloseWithSectionSeparator(ctx context.Context) {
+	conn := &closeable{}
+	// ===================================================================
+	_ = conn.Close() // want "discarding error from Close via blank assignment"
+}
+
+// =============================================================================
+// Case 19: Close with blank comment - SHOULD FLAG
+// =============================================================================
+
+func (s *Service) BadCloseWithBlankComment(ctx context.Context) {
+	conn := &closeable{}
+	//
+	_ = conn.Close() // want "discarding error from Close via blank assignment"
+}
