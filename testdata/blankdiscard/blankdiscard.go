@@ -16,7 +16,7 @@ func singleError() error {
 }
 
 func (s *Service) BadSingleError(ctx context.Context) {
-	_ = singleError() // want "discarded error from singleError"
+	_ = singleError() // want "discarding error from singleError via blank assignment"
 }
 
 // =============================================================================
@@ -28,7 +28,7 @@ func multiReturn() (string, error) {
 }
 
 func (s *Service) BadMultiDiscard(ctx context.Context) {
-	_, _ = multiReturn() // want "discarded error from multiReturn"
+	_, _ = multiReturn() // want "discarding error from multiReturn via blank assignment"
 }
 
 // =============================================================================
@@ -43,7 +43,7 @@ func (c *closeable) Close() error {
 
 func (s *Service) BadCloseNoComment(ctx context.Context) {
 	conn := &closeable{}
-	_ = conn.Close() // want "discarded error from Close"
+	_ = conn.Close() // want "discarding error from Close via blank assignment"
 }
 
 // =============================================================================
@@ -100,7 +100,7 @@ func (s *Service) GoodHandledMulti(ctx context.Context) {
 // =============================================================================
 
 func (s *Service) BadReadCloser(ctx context.Context, rc io.ReadCloser) {
-	_ = rc.Close() // want "discarded error from Close"
+	_ = rc.Close() // want "discarding error from Close via blank assignment"
 }
 
 // =============================================================================
@@ -113,11 +113,11 @@ func (s *Service) GoodReadCloserWithComment(ctx context.Context, rc io.ReadClose
 }
 
 // =============================================================================
-// Case 10: Multi-return with first value used, second (error) discarded - SHOULD FLAG
+// Case 10: Short declaration (:=) - SHOULD NOT FLAG (only token.ASSIGN is checked)
 // =============================================================================
 
-func (s *Service) BadPartialDiscard(ctx context.Context) {
-	x, _ := multiReturn() // want "discarded error from multiReturn"
+func (s *Service) GoodShortDeclaration(ctx context.Context) {
+	x, _ := multiReturn()
 	_ = x
 }
 
@@ -142,5 +142,14 @@ type errorReturner interface {
 }
 
 func (s *Service) BadInterfaceError(ctx context.Context, e errorReturner) {
-	_ = e.DoWork() // want "discarded error from DoWork"
+	_ = e.DoWork() // want "discarding error from DoWork via blank assignment"
+}
+
+// =============================================================================
+// Case 13: Non-call RHS (variable assignment) - SHOULD NOT FLAG
+// =============================================================================
+
+func (s *Service) GoodNonCallRHS(ctx context.Context) {
+	var err error
+	_ = err // assigning variable, not calling function - no flag
 }

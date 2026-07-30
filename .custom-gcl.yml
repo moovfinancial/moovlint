@@ -1,5 +1,0 @@
-version: v2.11.4
-name: custom-gcl
-plugins:
-  - module: 'github.com/moovfinancial/moovlint'
-    path: /workspace

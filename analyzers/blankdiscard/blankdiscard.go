@@ -18,7 +18,7 @@ var Analyzer = &analysis.Analyzer{
 }
 
 func run(pass *analysis.Pass) (any, error) {
-	if !moovutil.IsServicePackage(pass.Pkg.Path()) {
+	if !moovutil.IsMoovPackage(pass.Pkg.Path()) {
 		return nil, nil
 	}
 
@@ -39,9 +39,16 @@ func run(pass *analysis.Pass) (any, error) {
 				return true
 			}
 
-			// Only check simple assignments (=), not declarations (:=) that assign to named variables
-			// We still check := if it assigns to blank identifiers
-			if assign.Tok != token.ASSIGN && assign.Tok != token.DEFINE {
+			// Only check simple assignments (=), not short declarations (:=)
+			if assign.Tok != token.ASSIGN {
+				return true
+			}
+
+			// Only flag function/method calls, not variable assignments
+			if len(assign.Rhs) != 1 {
+				return true
+			}
+			if _, ok := assign.Rhs[0].(*ast.CallExpr); !ok {
 				return true
 			}
 
@@ -98,7 +105,7 @@ func run(pass *analysis.Pass) (any, error) {
 
 				pass.Report(analysis.Diagnostic{
 					Pos:     assign.Pos(),
-					Message: fmt.Sprintf("discarded error from %s", funcName),
+					Message: fmt.Sprintf("discarding error from %s via blank assignment; handle, wrap-and-return, or add explanatory comment for Close() calls", funcName),
 				})
 			}
 			return true
@@ -144,17 +151,10 @@ func hasExplanatoryComment(assign *ast.AssignStmt, comments []commentInfo, fset 
 	return false
 }
 
-// getFuncName extracts the function/method name from the RHS of an assignment
+// getFuncName extracts the function/method name from a single-element RHS.
+// Callers must ensure rhs contains exactly one CallExpr.
 func getFuncName(rhs []ast.Expr) string {
-	if len(rhs) != 1 {
-		return "function"
-	}
-
-	call, ok := rhs[0].(*ast.CallExpr)
-	if !ok {
-		return "expression"
-	}
-
+	call := rhs[0].(*ast.CallExpr)
 	switch fun := call.Fun.(type) {
 	case *ast.Ident:
 		return fun.Name
