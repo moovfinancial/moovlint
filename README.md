@@ -22,6 +22,7 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `timeinject` | shipping | Detects `time.Now()` calls in service methods that have a `stime.TimeService` field on their receiver. |
 | `contextcancel` | shipping | Checks that `context.WithCancel`/`WithTimeout`/`WithDeadline` results have a corresponding `defer cancel()`. |
 | `nolintguard` | shipping | Checks that `//nolint` directives target a specific linter and include an explanation. |
+| `blankdiscard` | advisory | Detects blank identifier assignments (`_ = f()`) where the discarded value implements the error interface; suppresses findings for Close() calls with explanatory comments. |
 
 ## Repository checks
 
