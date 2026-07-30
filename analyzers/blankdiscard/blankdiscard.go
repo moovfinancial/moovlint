@@ -1,7 +1,6 @@
 package blankdiscard
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -99,8 +98,10 @@ func run(pass *analysis.Pass) (any, error) {
 					continue
 				}
 
-				// Check if the type implements error interface
-				if !types.Implements(rhsType, errorInterface) {
+				// Check if the type implements error interface, including via
+				// a pointer receiver (e.g. func (e *MyError) Error() string
+				// with a function returning MyError by value).
+				if !types.Implements(rhsType, errorInterface) && !types.Implements(types.NewPointer(rhsType), errorInterface) {
 					continue
 				}
 
@@ -112,9 +113,9 @@ func run(pass *analysis.Pass) (any, error) {
 					continue
 				}
 
-				message := fmt.Sprintf("discarding error from %s via blank assignment; handle or wrap-and-return", funcName)
+				message := "discarding error from " + funcName + " via blank assignment; handle or wrap-and-return"
 				if funcName == "Close" {
-					message = fmt.Sprintf("discarding error from %s via blank assignment; handle, wrap-and-return, or add explanatory comment to suppress", funcName)
+					message = "discarding error from " + funcName + " via blank assignment; handle, wrap-and-return, or add explanatory comment to suppress"
 				}
 				pass.Report(analysis.Diagnostic{
 					Pos:     assign.Pos(),
