@@ -153,3 +153,39 @@ func (s *Service) GoodNonCallRHS(ctx context.Context) {
 	var err error
 	_ = err // assigning variable, not calling function - no flag
 }
+
+// =============================================================================
+// Case 14: Error-first multi-return pattern - SHOULD FLAG
+// =============================================================================
+
+func errorFirst() (error, string) {
+	return nil, ""
+}
+
+func (s *Service) BadErrorFirst(ctx context.Context) {
+	_, _ = errorFirst() // want "discarding error from errorFirst via blank assignment"
+}
+
+// =============================================================================
+// Case 15: Generic function returning error - SHOULD FLAG
+// =============================================================================
+
+func genericFunc[T any]() error {
+	return nil
+}
+
+func (s *Service) BadGenericFunc(ctx context.Context) {
+	_ = genericFunc[int]() // want "discarding error from genericFunc via blank assignment"
+}
+
+// =============================================================================
+// Case 16: Generic function with multiple type params returning error - SHOULD FLAG
+// =============================================================================
+
+func genericMultiFunc[T, U any]() error {
+	return nil
+}
+
+func (s *Service) BadGenericMultiFunc(ctx context.Context) {
+	_ = genericMultiFunc[int, string]() // want "discarding error from genericMultiFunc via blank assignment"
+}
