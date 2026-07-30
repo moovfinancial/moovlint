@@ -26,7 +26,7 @@ func (s *Service) BadSince(ctx context.Context) {
 
 func (s *Service) GoodSince(ctx context.Context) {
 	var start time.Time
-	_ = s.clock.Now().(time.Time).Sub(start) // correct: use injected clock
+	_ = s.clock.Now().Sub(start) // correct: use injected clock
 }
 
 func (s *Service) BadUntil(ctx context.Context) {
@@ -36,7 +36,7 @@ func (s *Service) BadUntil(ctx context.Context) {
 
 func (s *Service) GoodUntil(ctx context.Context) {
 	var deadline time.Time
-	_ = deadline.Sub(s.clock.Now().(time.Time)) // correct: use injected clock
+	_ = deadline.Sub(s.clock.Now()) // correct: use injected clock
 }
 
 type NoTimeService struct{}
