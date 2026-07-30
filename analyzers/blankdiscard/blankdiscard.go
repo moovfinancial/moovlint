@@ -62,10 +62,11 @@ func run(pass *analysis.Pass) (any, error) {
 				if len(assign.Rhs) == 1 {
 					// Tuple assignment: _, _ = f() or x, _ = f()
 					rhsExpr := assign.Rhs[0]
-					if _, ok := rhsExpr.(*ast.CallExpr); !ok {
-						return true
+					call, ok := rhsExpr.(*ast.CallExpr)
+					if !ok {
+						continue
 					}
-					rhsCall = rhsExpr.(*ast.CallExpr)
+					rhsCall = call
 					tv, ok := pass.TypesInfo.Types[rhsExpr]
 					if !ok {
 						continue
@@ -111,9 +112,13 @@ func run(pass *analysis.Pass) (any, error) {
 					continue
 				}
 
+				message := fmt.Sprintf("discarding error from %s via blank assignment; handle or wrap-and-return", funcName)
+				if funcName == "Close" {
+					message = fmt.Sprintf("discarding error from %s via blank assignment; handle, wrap-and-return, or add explanatory comment to suppress", funcName)
+				}
 				pass.Report(analysis.Diagnostic{
 					Pos:     assign.Pos(),
-					Message: fmt.Sprintf("discarding error from %s via blank assignment; handle, wrap-and-return, or add explanatory comment for Close() calls", funcName),
+					Message: message,
 				})
 			}
 			return true
@@ -149,8 +154,8 @@ func hasExplanatoryComment(assign *ast.AssignStmt, comments []commentInfo, fset 
 	assignLine := fset.Position(assign.Pos()).Line
 	for _, c := range comments {
 		if c.line == assignLine || c.line == assignLine-1 {
-			// Skip "// want" test annotations
-			if strings.Contains(c.text, "// want") {
+			// Skip "// want" test annotations (analysistest convention: `// want "..."`)
+			if strings.Contains(c.text, `// want "`) {
 				continue
 			}
 			// Extract comment content (strip // or /* */ prefix and whitespace)
