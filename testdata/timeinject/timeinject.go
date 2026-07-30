@@ -12,7 +12,7 @@ type Service struct {
 }
 
 func (s *Service) BadNow(ctx context.Context) {
-	_ = time.Now() // want "use svc.time.Now\\(\\) instead of time.Now\\(\\); TimeService does not expose Now/Since/Until wrappers"
+	_ = time.Now() // want "use your injected TimeService field's .Now\\(\\) instead of time.Now\\(\\)"
 }
 
 func (s *Service) GoodNow(ctx context.Context) {
@@ -21,7 +21,7 @@ func (s *Service) GoodNow(ctx context.Context) {
 
 func (s *Service) BadSince(ctx context.Context) {
 	var start time.Time
-	_ = time.Since(start) // want "use svc.time.Now\\(\\) instead of time.Since\\(\\); TimeService does not expose Now/Since/Until wrappers"
+	_ = time.Since(start) // want "use your injected TimeService field's .Now\\(\\) instead of time.Since\\(\\)"
 }
 
 func (s *Service) GoodSince(ctx context.Context) {
@@ -31,7 +31,7 @@ func (s *Service) GoodSince(ctx context.Context) {
 
 func (s *Service) BadUntil(ctx context.Context) {
 	var deadline time.Time
-	_ = time.Until(deadline) // want "use svc.time.Now\\(\\) instead of time.Until\\(\\); TimeService does not expose Now/Since/Until wrappers"
+	_ = time.Until(deadline) // want "use your injected TimeService field's .Now\\(\\) instead of time.Until\\(\\)"
 }
 
 func (s *Service) GoodUntil(ctx context.Context) {

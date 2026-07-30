@@ -12,7 +12,7 @@ import (
 
 var Analyzer = &analysis.Analyzer{
 	Name: "timeinject",
-	Doc:  "detects time.Now()/time.Since()/time.Until() calls in service methods that have a stime.TimeService field on their receiver",
+	Doc:  "detects time.Now()/time.Since()/time.Until() calls in service methods that have an stime.TimeService field; replace with your injected TimeService field's .Now() and manual duration arithmetic",
 	Run:  run,
 }
 
@@ -65,7 +65,7 @@ func run(pass *analysis.Pass) (any, error) {
 				}
 				pass.Report(analysis.Diagnostic{
 					Pos:     call.Pos(),
-					Message: fmt.Sprintf("use svc.time.Now() instead of time.%s(); TimeService does not expose Now/Since/Until wrappers", funcName),
+					Message: fmt.Sprintf("use your injected TimeService field's .Now() instead of time.%s()", funcName),
 				})
 				return true
 			})
