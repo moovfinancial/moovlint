@@ -17,7 +17,7 @@ var Analyzer = &analysis.Analyzer{
 }
 
 func run(pass *analysis.Pass) (any, error) {
-	if !moovutil.IsServicePackage(pass.Pkg.Path()) {
+	if !moovutil.IsMoovPackage(pass.Pkg.Path()) {
 		return nil, nil
 	}
 
@@ -49,8 +49,8 @@ func run(pass *analysis.Pass) (any, error) {
 					continue
 				}
 
-				// Check if there's an explanatory comment
-				if hasExplanatoryComment(pass, file, assign) {
+				// Check if RHS is a Close() call with an explanatory comment
+				if len(assign.Rhs) > 0 && isCloseCall(assign.Rhs[0]) && hasExplanatoryComment(pass, file, assign) {
 					continue
 				}
 
@@ -117,6 +117,21 @@ func implementsError(t types.Type) bool {
 	// Check if the type implements the error interface
 	errorInterface := errorType.Underlying().(*types.Interface)
 	return types.Implements(t, errorInterface)
+}
+
+// isCloseCall checks if the expression is a call to a method named "Close".
+func isCloseCall(expr ast.Expr) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+
+	return sel.Sel.Name == "Close"
 }
 
 // hasExplanatoryComment checks if there's a comment on the same line or the preceding line

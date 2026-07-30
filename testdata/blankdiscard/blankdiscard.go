@@ -97,8 +97,16 @@ func (s *Service) BadIOCloserNoComment(rc io.ReadCloser) {
 	_ = rc.Close() // want "discarding error return value; handle the error or use an explanatory comment if intentional"
 }
 
-// Single error discard with explanatory inline comment - should NOT be flagged
-func (s *Service) GoodSingleDiscardWithComment() {
+// Single error discard with explanatory inline comment - should be flagged (comments only suppress Close())
+func (s *Service) BadSingleDiscardWithComment() {
 	e := &ErrorReturner{}
-	_ = e.ReturnsError() // error intentionally ignored, retrying would cause loop
+	_ = e.ReturnsError() // want "discarding error return value; handle the error or use an explanatory comment if intentional"
+}
+
+// Error assigned to named variable using = (not :=) - should NOT be flagged
+func (s *Service) GoodAssignToNamedError() {
+	e := &ErrorReturner{}
+	var err error
+	err = e.ReturnsError() // should NOT be flagged (not blank)
+	_ = err
 }
