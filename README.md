@@ -19,7 +19,7 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `oteltags` | shipping | Checks that `otel` struct tags use lower snake case and do not include `omitempty`; flags map/slice-of-struct/nested types. |
 | `controllerassert` | shipping | Checks that HTTP controller structs with `AppendRoutes` have a compile-time interface assertion. |
 | `repoerrorflags` | advisory | Checks that repository methods flag expected database errors (AlreadyExists→NotUnique, NotFound→NotFound) with the correct `errors.Flag`. |
-| `timeinject` | shipping | Detects `time.Now()` calls in service methods that have a `stime.TimeService` field on their receiver. |
+| `timeinject` | shipping | Detects `time.Now()`/`time.Since()`/`time.Until()` calls in service methods that have a `stime.TimeService` field on their receiver. |
 | `contextcancel` | shipping | Checks that `context.WithCancel`/`WithTimeout`/`WithDeadline` results have a corresponding `defer cancel()`. |
 | `nolintguard` | shipping | Checks that `//nolint` directives target a specific linter and include an explanation. |
 
