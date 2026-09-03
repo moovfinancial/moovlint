@@ -24,3 +24,12 @@ type NoTimeService struct{}
 func (s *NoTimeService) OKNow(ctx context.Context) {
 	_ = time.Now()
 }
+
+func BadNowAsValue(clock func() time.Time) func() time.Time {
+	clock = time.Now // want "time.Now is passed as the wall clock"
+	return clock
+}
+
+func OKNowCalled() time.Time {
+	return time.Now()
+}

@@ -73,3 +73,44 @@ message WithUnexplainedGap {
 		}
 	}
 }
+
+func TestPIIFields(t *testing.T) {
+	tmp := t.TempDir()
+	proto := `syntax = "proto3";
+package moov.test.v1;
+
+message Payer {
+  string payer_email = 1;
+  string phone_number = 2 [(moov.v1.sensitive) = true];
+  // Non-PII per Cards team confirmation; used for routing only.
+  string billing_address = 3;
+  string additional_fields = 4;
+  string company_name = 5;
+  string payment_token = 6;
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, "test.proto"), []byte(proto), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := ProtobufChecker{}
+	diags, err := c.Check(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(diags) != 2 {
+		t.Fatalf("expected 2 PII diagnostics, got %d: %v", len(diags), diags)
+	}
+	for _, d := range diags {
+		if !strings.Contains(d.Message, "payer_email") && !strings.Contains(d.Message, "additional_fields") {
+			t.Errorf("unexpected diagnostic: %s", d.Message)
+		}
+		if !strings.Contains(d.Message, "looks like PII") {
+			t.Errorf("unexpected message: %s", d.Message)
+		}
+		if d.Line == 0 {
+			t.Errorf("diagnostic missing line number: %+v", d)
+		}
+	}
+}
