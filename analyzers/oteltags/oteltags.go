@@ -59,12 +59,12 @@ func run(pass *analysis.Pass) (any, error) {
 					})
 				}
 
-				if hasBadType(pass, field) {
-					pass.Report(analysis.Diagnostic{
-						Pos:     field.Pos(),
-						Message: fmt.Sprintf("otel tag on field with map, slice-of-struct, or deeply nested type; use scalar attributes or bounded StringSlice instead"),
-					})
-				}
+			if hasBadType(pass, field) {
+				pass.Report(analysis.Diagnostic{
+					Pos:     field.Pos(),
+					Message: "otel tag on field with map, slice-of-struct, or deeply nested type; use scalar attributes or bounded StringSlice instead",
+				})
+			}
 			}
 			return true
 		})

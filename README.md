@@ -19,9 +19,21 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `oteltags` | shipping | Checks that `otel` struct tags use lower snake case and do not include `omitempty`; flags map/slice-of-struct/nested types. |
 | `controllerassert` | shipping | Checks that HTTP controller structs with `AppendRoutes` have a compile-time interface assertion. |
 | `repoerrorflags` | advisory | Checks that repository methods flag expected database errors (AlreadyExists→NotUnique, NotFound→NotFound) with the correct `errors.Flag`. |
-| `timeinject` | shipping | Detects `time.Now()` calls in service methods that have a `stime.TimeService` field on their receiver. |
+| `timeinject` | shipping | Detects `time.Now()` calls in service methods that have a `stime.TimeService` field on their receiver, and `time.Now` passed as a clock value instead of an injected clock. |
 | `contextcancel` | shipping | Checks that `context.WithCancel`/`WithTimeout`/`WithDeadline` results have a corresponding `defer cancel()`. |
 | `nolintguard` | shipping | Checks that `//nolint` directives target a specific linter and include an explanation. |
+| `blankdiscard` | shipping | Detects `_ =` blank discards of error and `sql.Result` returns without an inline justification comment. |
+| `uuidgen` | shipping | Detects `uuid.New*` used for ID generation in mid-based services; requires `mid.NewRandomID` so entity IDs carry their type. |
+| `requiregoroutine` | shipping | Detects `require.*` and `t.Fatal`/`FailNow` calls inside goroutine closures (go statements, httptest handlers, callbacks) in test files. |
+| `spanname` | shipping | Checks span names passed to `telemetry.StartSpan`/`StartLinkedRootSpan`/`SetName` are lower-kebab-case. |
+| `testsleep` | advisory | Detects `time.Sleep` used for synchronization in test files; suggests `require.Eventually` or an injected clock. |
+| `logformat` | shipping | Detects `%w` verbs in Moov logger format strings; wrapping verbs are only valid in `fmt.Errorf`. |
+| `moneyfloat` | shipping | Detects float types used for monetary values (fields and params named amount, balance, fee, or total). |
+| `spanerrors` | advisory | Checks that functions which create a span record returned errors with `telemetry.RecordError` before returning. |
+| `mapderef` | advisory | Detects `m[k].Field` dereferences on maps of pointers or interfaces without a comma-ok check. |
+| `subtestassert` | shipping | Detects assertion objects created from the outer test's `t` used inside `t.Run` closures. |
+| `ctornilguard` | advisory | Checks exported `New*` constructors nil-check pointer and interface dependencies before storing them. |
+| `enumcast` | advisory | Detects unchecked conversions of raw strings to enum-like named string types outside validation and mapper functions. |
 
 ## Repository checks
 
@@ -29,9 +41,11 @@ Non-Go file checks run via `moovlint repo [path]`:
 
 | Checker | Description |
 |---|---|
-| `migrations` | Sequential naming, no `IF NOT EXISTS`, no direct renames, no `NOT NULL` without `DEFAULT`. |
+| `migrations` | Sequential naming, no `IF NOT EXISTS`, no direct renames, no `NOT NULL` without `DEFAULT`, and empty-string `CHECK` constraints on key `TEXT NOT NULL` columns. |
 | `structtags` | JSON tags use camelCase, preserve `ID` casing, timestamps use `On`/`At` suffix. |
-| `protobuf` | Field numbers are permanent and unique; gaps between numbers are reserved. |
+| `protobuf` | Field numbers are permanent and unique; gaps between numbers are reserved; PII-named fields carry the `sensitive` option or a Non-PII justification comment. |
+| `sqlnow` | No `now()`/`CURRENT_TIMESTAMP` in sqlc query files; pass a timestamp parameter so values are testable. |
+| `gomodreplace` | `replace` directives in `go.mod` carry a tracking ticket comment (`// TODO(LINEAR-123)`). |
 
 ## Development
 

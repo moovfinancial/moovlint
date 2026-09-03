@@ -2,6 +2,7 @@ package timeinject
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 	"strings"
 
@@ -11,7 +12,7 @@ import (
 
 var Analyzer = &analysis.Analyzer{
 	Name: "timeinject",
-	Doc:  "detects time.Now() calls in service methods that have a stime.TimeService field on their receiver",
+	Doc:  "detects time.Now() in service methods with a stime.TimeService field, and time.Now passed as a clock value instead of an injected clock",
 	Run:  run,
 }
 
@@ -62,8 +63,49 @@ func run(pass *analysis.Pass) (any, error) {
 			})
 			return true
 		})
+
+		checkTimeNowAsValue(pass, file)
 	}
 	return nil, nil
+}
+
+// checkTimeNowAsValue flags the time.Now function passed around as a value
+// (constructor args, field assignments, variables) instead of an injected clock.
+func checkTimeNowAsValue(pass *analysis.Pass, file *ast.File) {
+	called := make(map[token.Pos]bool)
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && isTimeNow(pass, sel) {
+			called[sel.Pos()] = true
+		}
+		return true
+	})
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok || !isTimeNow(pass, sel) {
+			return true
+		}
+		if called[sel.Pos()] {
+			return true
+		}
+		pass.Report(analysis.Diagnostic{
+			Pos:     sel.Pos(),
+			Message: "time.Now is passed as the wall clock; inject an stime.TimeService (or a stubbable func() time.Time parameter) instead",
+		})
+		return true
+	})
+}
+
+func isTimeNow(pass *analysis.Pass, sel *ast.SelectorExpr) bool {
+	if sel.Sel.Name != "Now" {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	return ok && id.Name == "time" && moovutil.SelectorPackagePath(pass, sel) == "time"
 }
 
 func hasTimeServiceField(pass *analysis.Pass, typeName *types.TypeName) bool {
