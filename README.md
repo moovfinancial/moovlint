@@ -15,7 +15,7 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `grpcstatus` | shipping | Checks that gRPC handler methods return errors through `GrpcErrorStatus`. |
 | `grpcserver` | shipping | Checks that gRPC controller structs embed their generated `Unimplemented*Server` type. |
 | `httpdecodeflag` | shipping | Checks that HTTP request body decode errors are wrapped with `errors.Flag(..., errors.NotSerializable)`. |
-| `midusage` | shipping | Detects `mid.MustParseID` usage outside test files. |
+| `midusage` | shipping | Detects `mid.MustParseID` outside test files and direct equality comparisons on `mid.ID`; use `Equals`. |
 | `oteltags` | shipping | Checks that `otel` struct tags use lower snake case and do not include `omitempty`; flags map/slice-of-struct/nested types. |
 | `controllerassert` | shipping | Checks that HTTP controller structs with `AppendRoutes` have a compile-time interface assertion. |
 | `repoerrorflags` | advisory | Checks that repository methods flag expected database errors (AlreadyExists→NotUnique, NotFound→NotFound) with the correct `errors.Flag`. |

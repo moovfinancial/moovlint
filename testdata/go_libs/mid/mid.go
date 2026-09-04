@@ -13,6 +13,8 @@ type ID[T any] struct{ raw string }
 
 func (id ID[T]) String() string { return id.raw }
 
+func (id ID[T]) Equals(other ID[T]) bool { return id.raw == other.raw }
+
 func ParseID[T any](s string) (ID[T], error) {
 	return ID[T]{raw: s}, nil
 }
