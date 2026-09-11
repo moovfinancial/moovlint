@@ -6,6 +6,7 @@ import (
 	"github.com/moovfinancial/moovlint/analyzers/controllerassert"
 	"github.com/moovfinancial/moovlint/analyzers/ctornilguard"
 	"github.com/moovfinancial/moovlint/analyzers/enumcast"
+	"github.com/moovfinancial/moovlint/analyzers/fixtureplacement"
 	"github.com/moovfinancial/moovlint/analyzers/grpcserver"
 	"github.com/moovfinancial/moovlint/analyzers/grpcstatus"
 	"github.com/moovfinancial/moovlint/analyzers/httpdecodeflag"
@@ -13,6 +14,7 @@ import (
 	"github.com/moovfinancial/moovlint/analyzers/mapderef"
 	"github.com/moovfinancial/moovlint/analyzers/midusage"
 	"github.com/moovfinancial/moovlint/analyzers/mockcheck"
+	"github.com/moovfinancial/moovlint/analyzers/modelplacement"
 	"github.com/moovfinancial/moovlint/analyzers/moneyfloat"
 	"github.com/moovfinancial/moovlint/analyzers/nolintguard"
 	"github.com/moovfinancial/moovlint/analyzers/oteltags"
@@ -35,12 +37,16 @@ import (
 // AllAnalyzers returns every moovlint analyzer. This is the single source of
 // truth consumed by both the golangci-lint plugin and the standalone CLI.
 func AllAnalyzers() []*analysis.Analyzer {
+	return configuredAnalyzers(Settings{})
+}
+
+func configuredAnalyzers(settings Settings) []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		spanevents.Analyzer,
 		spanrequired.Analyzer,
 		spanlifecycle.Analyzer,
 		spancontext.Analyzer,
-		mockcheck.Analyzer,
+		mockcheck.New(settings.MockCheck),
 		validationflag.Analyzer,
 		grpcstatus.Analyzer,
 		grpcserver.Analyzer,
@@ -64,5 +70,7 @@ func AllAnalyzers() []*analysis.Analyzer {
 		subtestassert.Analyzer,
 		ctornilguard.Analyzer,
 		enumcast.Analyzer,
+		fixtureplacement.New(settings.FixturePlacement),
+		modelplacement.New(settings.ModelPlacement),
 	}
 }
