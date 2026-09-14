@@ -13,7 +13,7 @@ import (
 
 var Analyzer = &analysis.Analyzer{
 	Name: "ctornilguard",
-	Doc:  "checks exported New* constructors nil-check pointer and interface dependencies before storing them",
+	Doc:  "checks constructor dependency guards and redundant method checks on constructor-validated dependencies",
 	Run:  run,
 }
 
@@ -21,6 +21,7 @@ func run(pass *analysis.Pass) (any, error) {
 	if !moovutil.IsServicePackage(pass.Pkg.Path()) {
 		return nil, nil
 	}
+	checkMethodGuards(pass)
 
 	for _, file := range pass.Files {
 		if moovutil.IsTestFile(pass.Fset.Position(file.Package).Filename) {
