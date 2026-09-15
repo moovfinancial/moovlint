@@ -1,6 +1,7 @@
 package timeinject
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -12,8 +13,15 @@ import (
 
 var Analyzer = &analysis.Analyzer{
 	Name: "timeinject",
-	Doc:  "detects time.Now() in service methods with a stime.TimeService field, and time.Now passed as a clock value instead of an injected clock",
+	Doc:  "detects time.Now()/time.Since()/time.Until() calls in service methods with a stime.TimeService field (replace with the injected clock's .Now() plus duration arithmetic), and time.Now passed as a clock value instead of an injected clock",
 	Run:  run,
+}
+
+// targetFuncs are the time package functions that internally call time.Now()
+var targetFuncs = map[string]bool{
+	"Now":   true,
+	"Since": true,
+	"Until": true,
 }
 
 func run(pass *analysis.Pass) (any, error) {
@@ -48,7 +56,8 @@ func run(pass *analysis.Pass) (any, error) {
 				if !ok {
 					return true
 				}
-				if sel.Sel.Name != "Now" {
+				funcName := sel.Sel.Name
+				if !targetFuncs[funcName] {
 					return true
 				}
 				pkgIdent, ok := sel.X.(*ast.Ident)
@@ -57,7 +66,7 @@ func run(pass *analysis.Pass) (any, error) {
 				}
 				pass.Report(analysis.Diagnostic{
 					Pos:     call.Pos(),
-					Message: "use injected stime.TimeService instead of time.Now() in service code with a time service field",
+					Message: fmt.Sprintf("use your injected TimeService field's .Now() instead of time.%s()", funcName),
 				})
 				return true
 			})
