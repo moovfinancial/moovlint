@@ -2,6 +2,8 @@ package midusage
 
 import (
 	"go/ast"
+	"go/token"
+	"go/types"
 
 	"github.com/moovfinancial/moovlint/internal/moovutil"
 	"golang.org/x/tools/go/analysis"
@@ -19,11 +21,18 @@ func run(pass *analysis.Pass) (any, error) {
 	}
 
 	for _, file := range pass.Files {
-		if moovutil.IsTestFile(pass.Fset.Position(file.Package).Filename) {
-			continue
-		}
-
 		ast.Inspect(file, func(n ast.Node) bool {
+			if comparison, ok := n.(*ast.BinaryExpr); ok && (comparison.Op == token.EQL || comparison.Op == token.NEQ) &&
+				(isMidID(pass.TypesInfo.TypeOf(comparison.X)) || isMidID(pass.TypesInfo.TypeOf(comparison.Y))) {
+				pass.Report(analysis.Diagnostic{
+					Pos:     comparison.Pos(),
+					Message: "mid.ID values must use Equals instead of == or !=",
+				})
+			}
+
+			if moovutil.IsTestFile(pass.Fset.Position(file.Package).Filename) {
+				return true
+			}
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
@@ -47,6 +56,15 @@ func run(pass *analysis.Pass) (any, error) {
 		})
 	}
 	return nil, nil
+}
+
+func isMidID(t types.Type) bool {
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	return obj != nil && obj.Name() == "ID" && obj.Pkg() != nil && moovutil.IsMidPackage(obj.Pkg().Path())
 }
 
 func selectorFromCall(call *ast.CallExpr) *ast.SelectorExpr {

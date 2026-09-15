@@ -6,8 +6,10 @@ import (
 
 	"github.com/moovfinancial/moovlint"
 	"github.com/moovfinancial/moovlint/repocheck"
+	"github.com/moovfinancial/moovlint/repocheck/gomodreplace"
 	"github.com/moovfinancial/moovlint/repocheck/migrations"
 	"github.com/moovfinancial/moovlint/repocheck/protobuf"
+	"github.com/moovfinancial/moovlint/repocheck/sqlnow"
 	"github.com/moovfinancial/moovlint/repocheck/structtags"
 	"golang.org/x/tools/go/analysis/multichecker"
 )
@@ -29,6 +31,8 @@ func runRepoChecks() {
 		migrations.MigrationsChecker{},
 		structtags.StructTagsChecker{},
 		protobuf.ProtobufChecker{},
+		sqlnow.SQLNowChecker{},
+		gomodreplace.GoModReplaceChecker{},
 	}
 	diags, err := repocheck.RunAll(root, checkers)
 	if err != nil {

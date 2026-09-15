@@ -52,3 +52,12 @@ func (s *NoTimeService) OKSince(ctx context.Context) {
 func (s *NoTimeService) OKUntil(ctx context.Context) {
 	_ = time.Until(time.Now().Add(time.Hour))
 }
+
+func BadNowAsValue(clock func() time.Time) func() time.Time {
+	clock = time.Now // want "time.Now is passed as the wall clock"
+	return clock
+}
+
+func OKNowCalled() time.Time {
+	return time.Now()
+}
