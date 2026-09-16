@@ -12,3 +12,7 @@ type Span interface {
 func SpanFromContext(ctx context.Context) Span {
 	return nil
 }
+
+func StartSpan(ctx context.Context, name string) (context.Context, Span) {
+	return ctx, nil
+}

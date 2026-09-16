@@ -7,5 +7,5 @@ import (
 )
 
 func TestAnalyzer(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), Analyzer, "testdata/spanerrors")
+	analysistest.Run(t, analysistest.TestData(), New(Config{Enabled: true}), "testdata/spanerrors")
 }

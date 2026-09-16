@@ -8,10 +8,23 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name: "mapderef",
-	Doc:  "detects m[k].Field dereferences on maps of pointers or interfaces without a comma-ok check; a missing key yields nil",
-	Run:  run,
+type Config struct {
+	Enabled bool `json:"enabled"`
+}
+
+func New(cfg Config) *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name: "mapderef",
+		Doc:  "detects m[k].Field dereferences on maps of pointers or interfaces without a comma-ok check; a missing key yields nil (advisory, opt-in)",
+	}
+	a.Flags.BoolVar(&cfg.Enabled, "enabled", cfg.Enabled, "enable advisory map dereference checks")
+	a.Run = func(pass *analysis.Pass) (any, error) {
+		if !cfg.Enabled {
+			return nil, nil
+		}
+		return run(pass)
+	}
+	return a
 }
 
 func run(pass *analysis.Pass) (any, error) {

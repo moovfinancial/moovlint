@@ -25,39 +25,52 @@ func run(pass *analysis.Pass) (any, error) {
 			continue
 		}
 
-		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
 			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			if sel.Sel.Name != "End" && sel.Sel.Name != "SetName" {
-				return true
-			}
-
-			if isSpanFromContextCall(pass, sel.X) {
-				pass.Report(analysis.Diagnostic{
-					Pos:     call.Pos(),
-					Message: fmt.Sprintf("do not call %s on a span retrieved from context; spans from context are owned by their creator", sel.Sel.Name),
-				})
-				return true
-			}
-
-			if id, ok := sel.X.(*ast.Ident); ok {
-				if isSpanFromContextVar(pass, file, id.Name) {
-					pass.Report(analysis.Diagnostic{
-						Pos:     call.Pos(),
-						Message: fmt.Sprintf("do not call %s on '%s' which is a span retrieved from context; spans from context are owned by their creator", sel.Sel.Name, id.Name),
-					})
-				}
-			}
-			return true
-		})
+			checkFuncBody(pass, fn)
+		}
 	}
 	return nil, nil
+}
+
+// checkFuncBody reports End/SetName calls on context-derived spans. The
+// variable lookup is scoped to the enclosing function: a same-named local in
+// a sibling function is a different span.
+func checkFuncBody(pass *analysis.Pass, fn *ast.FuncDecl) {
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if sel.Sel.Name != "End" && sel.Sel.Name != "SetName" {
+			return true
+		}
+
+		if isSpanFromContextCall(pass, sel.X) {
+			pass.Report(analysis.Diagnostic{
+				Pos:     call.Pos(),
+				Message: fmt.Sprintf("do not call %s on a span retrieved from context; spans from context are owned by their creator", sel.Sel.Name),
+			})
+			return true
+		}
+
+		if id, ok := sel.X.(*ast.Ident); ok {
+			if isSpanFromContextVar(pass, fn, id.Name) {
+				pass.Report(analysis.Diagnostic{
+					Pos:     call.Pos(),
+					Message: fmt.Sprintf("do not call %s on '%s' which is a span retrieved from context; spans from context are owned by their creator", sel.Sel.Name, id.Name),
+				})
+			}
+		}
+		return true
+	})
 }
 
 func isSpanFromContextCall(pass *analysis.Pass, expr ast.Expr) bool {
@@ -73,9 +86,9 @@ func isSpanFromContextCall(pass *analysis.Pass, expr ast.Expr) bool {
 	return isTracePackage(pkgPath)
 }
 
-func isSpanFromContextVar(pass *analysis.Pass, file *ast.File, varName string) bool {
+func isSpanFromContextVar(pass *analysis.Pass, fn *ast.FuncDecl, varName string) bool {
 	found := false
-	ast.Inspect(file, func(n ast.Node) bool {
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		if found {
 			return false
 		}

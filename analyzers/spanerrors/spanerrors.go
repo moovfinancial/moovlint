@@ -10,10 +10,23 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name: "spanerrors",
-	Doc:  "checks that functions which create a span record returned errors with telemetry.RecordError before returning",
-	Run:  run,
+type Config struct {
+	Enabled bool `json:"enabled"`
+}
+
+func New(cfg Config) *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name: "spanerrors",
+		Doc:  "checks that functions which create a span record returned errors with telemetry.RecordError before returning (advisory, opt-in)",
+	}
+	a.Flags.BoolVar(&cfg.Enabled, "enabled", cfg.Enabled, "enable advisory span error recording checks")
+	a.Run = func(pass *analysis.Pass) (any, error) {
+		if !cfg.Enabled {
+			return nil, nil
+		}
+		return run(pass)
+	}
+	return a
 }
 
 var errorIface = types.Universe.Lookup("error").Type().Underlying().(*types.Interface)

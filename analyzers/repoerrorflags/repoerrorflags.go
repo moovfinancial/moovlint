@@ -8,10 +8,23 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name: "repoerrorflags",
-	Doc:  "checks that repository methods flag expected database errors with the correct errors.Flag",
-	Run:  run,
+type Config struct {
+	Enabled bool `json:"enabled"`
+}
+
+func New(cfg Config) *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name: "repoerrorflags",
+		Doc:  "checks that repository methods flag expected database errors with the correct errors.Flag (advisory, opt-in)",
+	}
+	a.Flags.BoolVar(&cfg.Enabled, "enabled", cfg.Enabled, "enable advisory repository error flag checks")
+	a.Run = func(pass *analysis.Pass) (any, error) {
+		if !cfg.Enabled {
+			return nil, nil
+		}
+		return run(pass)
+	}
+	return a
 }
 
 func run(pass *analysis.Pass) (any, error) {

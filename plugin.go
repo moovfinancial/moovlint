@@ -4,9 +4,15 @@ import (
 	"fmt"
 
 	"github.com/golangci/plugin-module-register/register"
+	"github.com/moovfinancial/moovlint/analyzers/ctornilguard"
+	"github.com/moovfinancial/moovlint/analyzers/enumcast"
 	"github.com/moovfinancial/moovlint/analyzers/fixtureplacement"
+	"github.com/moovfinancial/moovlint/analyzers/mapderef"
 	"github.com/moovfinancial/moovlint/analyzers/mockcheck"
 	"github.com/moovfinancial/moovlint/analyzers/modelplacement"
+	"github.com/moovfinancial/moovlint/analyzers/repoerrorflags"
+	"github.com/moovfinancial/moovlint/analyzers/spanerrors"
+	"github.com/moovfinancial/moovlint/analyzers/testsleep"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -18,6 +24,12 @@ type Settings struct {
 	MockCheck        mockcheck.Config        `json:"mockcheck"`
 	FixturePlacement fixtureplacement.Config `json:"fixtureplacement"`
 	ModelPlacement   modelplacement.Config   `json:"modelplacement"`
+	Ctornilguard     ctornilguard.Config     `json:"ctornilguard"`
+	SpanErrors       spanerrors.Config       `json:"spanerrors"`
+	EnumCast         enumcast.Config         `json:"enumcast"`
+	RepoErrorFlags   repoerrorflags.Config   `json:"repoerrorflags"`
+	TestSleep        testsleep.Config        `json:"testsleep"`
+	MapDeref         mapderef.Config         `json:"mapderef"`
 }
 
 type Plugin struct {

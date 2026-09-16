@@ -11,10 +11,23 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name: "ctornilguard",
-	Doc:  "checks constructor dependency guards and redundant method checks on constructor-validated dependencies",
-	Run:  run,
+type Config struct {
+	Enabled bool `json:"enabled"`
+}
+
+func New(cfg Config) *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name: "ctornilguard",
+		Doc:  "checks constructor dependency guards and redundant method checks on constructor-validated dependencies (advisory, opt-in)",
+	}
+	a.Flags.BoolVar(&cfg.Enabled, "enabled", cfg.Enabled, "enable advisory constructor nil guard checks")
+	a.Run = func(pass *analysis.Pass) (any, error) {
+		if !cfg.Enabled {
+			return nil, nil
+		}
+		return run(pass)
+	}
+	return a
 }
 
 func run(pass *analysis.Pass) (any, error) {

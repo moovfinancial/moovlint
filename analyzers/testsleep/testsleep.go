@@ -7,10 +7,23 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name: "testsleep",
-	Doc:  "detects time.Sleep used for synchronization in test files; use require.Eventually or an injected clock",
-	Run:  run,
+type Config struct {
+	Enabled bool `json:"enabled"`
+}
+
+func New(cfg Config) *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name: "testsleep",
+		Doc:  "detects time.Sleep used for synchronization in test files; use require.Eventually or an injected clock (advisory, opt-in)",
+	}
+	a.Flags.BoolVar(&cfg.Enabled, "enabled", cfg.Enabled, "enable advisory test sleep checks")
+	a.Run = func(pass *analysis.Pass) (any, error) {
+		if !cfg.Enabled {
+			return nil, nil
+		}
+		return run(pass)
+	}
+	return a
 }
 
 func run(pass *analysis.Pass) (any, error) {

@@ -10,10 +10,23 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name: "enumcast",
-	Doc:  "detects unchecked conversions of raw strings to enum-like named string types outside validation and mapper functions",
-	Run:  run,
+type Config struct {
+	Enabled bool `json:"enabled"`
+}
+
+func New(cfg Config) *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name: "enumcast",
+		Doc:  "detects unchecked conversions of raw strings to enum-like named string types outside validation and mapper functions (advisory, opt-in)",
+	}
+	a.Flags.BoolVar(&cfg.Enabled, "enabled", cfg.Enabled, "enable advisory enum cast checks")
+	a.Run = func(pass *analysis.Pass) (any, error) {
+		if !cfg.Enabled {
+			return nil, nil
+		}
+		return run(pass)
+	}
+	return a
 }
 
 func run(pass *analysis.Pass) (any, error) {

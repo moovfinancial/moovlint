@@ -24,3 +24,11 @@ func (s *Service) BadVarEnd(ctx context.Context) {
 func (s *Service) OK(ctx context.Context) {
 	trace.SpanFromContext(ctx).RecordError(nil)
 }
+
+// OwnedEnd uses the same local name as BadVarEnd but its span comes from
+// StartSpan, not from context. A sibling function's context-derived span of
+// the same name must not flag it.
+func (s *Service) OwnedEnd(ctx context.Context) {
+	_, span := trace.StartSpan(ctx, "owned")
+	defer span.End()
+}
