@@ -7,5 +7,5 @@ import (
 )
 
 func TestAnalyzer(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), Analyzer, "testdata/enumcast")
+	analysistest.Run(t, analysistest.TestData(), New(Config{Enabled: true}), "testdata/enumcast")
 }
