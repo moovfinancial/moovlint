@@ -35,7 +35,7 @@ func run(pass *analysis.Pass) (any, error) {
 			if !ok {
 				return true
 			}
-			if !hasGRPCHandlerMethods(pass, typeDecl) {
+			if !implementsServerInterface(pass, typeDecl) {
 				return true
 			}
 			if embedsUnimplementedServer(structType) {
@@ -51,7 +51,14 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func hasGRPCHandlerMethods(pass *analysis.Pass, typeSpec *ast.TypeSpec) bool {
+// implementsServerInterface reports whether the struct implements, in whole or
+// in part, a generated service interface from another package. A real gRPC
+// controller has at least one method whose name matches a method of a
+// cross-package interface named *Server, and whose request type comes from
+// that same package. The plain handler-shape check (context.Context, T) (R,
+// error) matches ordinary service and repository methods, so it cannot carry
+// the rule alone.
+func implementsServerInterface(pass *analysis.Pass, typeSpec *ast.TypeSpec) bool {
 	obj := pass.TypesInfo.Defs[typeSpec.Name]
 	if obj == nil {
 		return false
@@ -62,13 +69,51 @@ func hasGRPCHandlerMethods(pass *analysis.Pass, typeSpec *ast.TypeSpec) bool {
 	}
 	methodSet := types.NewMethodSet(types.NewPointer(named))
 	for i := 0; i < methodSet.Len(); i++ {
-		method := methodSet.At(i)
-		fn, ok := method.Obj().(*types.Func)
+		fn, ok := methodSet.At(i).Obj().(*types.Func)
+		if !ok || !isGRPCHandlerSignature(fn) {
+			continue
+		}
+		if implementsServerMethod(pass, fn) {
+			return true
+		}
+	}
+	return false
+}
+
+// implementsServerMethod reports whether fn matches a method of a *Server
+// interface from the package that defines fn's request type.
+func implementsServerMethod(pass *analysis.Pass, fn *types.Func) bool {
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Params().Len() != 2 {
+		return false
+	}
+
+	request := sig.Params().At(1).Type()
+	if ptr, ok := request.(*types.Pointer); ok {
+		request = ptr.Elem()
+	}
+	requestNamed, ok := request.(*types.Named)
+	if !ok {
+		return false
+	}
+	pkg := requestNamed.Obj().Pkg()
+	if pkg == nil || pkg == pass.Pkg {
+		return false
+	}
+
+	for _, name := range pkg.Scope().Names() {
+		typeName, ok := pkg.Scope().Lookup(name).(*types.TypeName)
+		if !ok || !strings.HasSuffix(name, "Server") {
+			continue
+		}
+		iface, ok := typeName.Type().Underlying().(*types.Interface)
 		if !ok {
 			continue
 		}
-		if isGRPCHandlerSignature(fn) {
-			return true
+		for i := 0; i < iface.NumMethods(); i++ {
+			if iface.Method(i).Name() == fn.Name() {
+				return true
+			}
 		}
 	}
 	return false

@@ -30,3 +30,18 @@ func (s *Service) GoodTimeout(ctx context.Context) {
 	defer cancel()
 	_ = ctx
 }
+
+// ReturnedCancel hands the cancel function to its caller; the caller owns it.
+func (s *Service) ReturnedCancel(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	return ctx, cancel
+}
+
+// ClosureCancel stops the context from a returned shutdown closure.
+func (s *Service) ClosureCancel() func() {
+	ctx, stop := context.WithCancel(context.Background())
+	_ = ctx
+	return func() {
+		stop()
+	}
+}
