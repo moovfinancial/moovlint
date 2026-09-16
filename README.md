@@ -6,51 +6,55 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 
 | Analyzer | Status | Description |
 |---|---|---|
-| `spanevents` | shipping | Detects `logger.Info().Log()`/`logger.Warn().Log()` calls in service/repo code and suggests `telemetry.AddEvent` or `telemetry.RecordError`. |
+| `spanevents` | shipping | Detects `logger.Info().Log()`/`logger.Warn().Log()` calls in service/repo code and suggests `telemetry.AddEvent` or `telemetry.RecordError`. Only applies where a `context.Context` is in scope; boot and shutdown helpers without one keep their logs. |
 | `spanrequired` | shipping | Checks exported methods on service structs taking `context.Context` have a `telemetry.StartSpan` call. Advisory severity while false-positive rate is calibrated. |
 | `spanlifecycle` | shipping | Checks that spans created with `telemetry.StartSpan` or `StartLinkedRootSpan` are ended with `defer span.End()`. |
-| `spancontext` | shipping | Detects `End()` or `SetName()` calls on spans retrieved from context via `trace.SpanFromContext`. |
+| `spancontext` | shipping | Detects `End()` or `SetName()` calls on spans retrieved from context via `trace.SpanFromContext`. The variable match is scoped to the enclosing function. |
 | `mockcheck` | shipping | Detects test replacements passed to same-module interfaces, including embedded-interface overrides across packages. Retains the same-package `mock*`/`fake*`/`stub*` check. Client interfaces are allowed by default; the exclusion is configurable. |
 | `validationflag` | shipping | Checks that `Validate() error` methods wrap `mvalidation.ValidateStruct` returns with `errors.Flag(..., errors.NotValid)`. |
 | `grpcstatus` | shipping | Checks that gRPC handler methods return errors through `GrpcErrorStatus`. |
-| `grpcserver` | shipping | Checks that gRPC controller structs embed their generated `Unimplemented*Server` type. |
+| `grpcserver` | shipping | Checks that gRPC controller structs embed their generated `Unimplemented*Server` type. A struct counts as a controller only when one of its methods matches a method of a cross-package `*Server` interface and takes that package's request type; ordinary `(context.Context, T) (R, error)` methods do not trigger it. |
 | `httpdecodeflag` | shipping | Checks that HTTP request body decode errors are wrapped with `errors.Flag(..., errors.NotSerializable)`. |
 | `midusage` | shipping | Detects `mid.MustParseID` outside test files and direct equality comparisons on `mid.ID`; use `Equals`. |
-| `oteltags` | shipping | Checks that `otel` struct tags use lower snake case and do not include `omitempty`; flags map/slice-of-struct/nested types. |
+| `oteltags` | shipping | Checks that `otel` struct tags use lower snake case and do not include `omitempty`; flags map/slice-of-struct/nested types. `otel:"-"` is the skip marker and is allowed, as are `time.Time` fields and types implementing `AttributeStringer` or a `Value()` method, which record one scalar attribute. |
 | `controllerassert` | shipping | Checks that HTTP controller structs with `AppendRoutes` have a compile-time interface assertion. |
-| `repoerrorflags` | advisory | Checks that repository methods flag expected database errors (AlreadyExists→NotUnique, NotFound→NotFound) with the correct `errors.Flag`. |
+| `repoerrorflags` | advisory, opt-in | Checks that repository methods flag expected database errors (AlreadyExists→NotUnique, NotFound→NotFound) with the correct `errors.Flag`. |
 | `timeinject` | shipping | Detects `time.Now()`/`time.Since()`/`time.Until()` calls in service methods that have a `stime.TimeService` field on their receiver, and `time.Now` passed as a clock value instead of an injected clock. |
-| `contextcancel` | shipping | Checks that `context.WithCancel`/`WithTimeout`/`WithDeadline` results have a corresponding `defer cancel()`. |
+| `contextcancel` | shipping | Checks that `context.WithCancel`/`WithTimeout`/`WithDeadline` results have a corresponding `defer cancel()`. A cancel value that is returned or captured by a shutdown closure is managed by its receiver and is not flagged; a blank discard is. |
 | `nolintguard` | shipping | Checks that `//nolint` directives target a specific linter and include an explanation. |
 | `blankdiscard` | shipping | Detects `_ =` blank discards of error and `sql.Result` returns without an inline justification comment. |
 | `uuidgen` | shipping | Detects `uuid.New*` used for ID generation in mid-based services; requires `mid.NewRandomID` so entity IDs carry their type. |
 | `requiregoroutine` | shipping | Detects `require.*` and `t.Fatal`/`FailNow` calls inside goroutine closures (go statements, httptest handlers, callbacks) in test files. |
 | `spanname` | shipping | Checks span names passed to `telemetry.StartSpan`/`StartLinkedRootSpan`/`SetName` are lower-kebab-case. |
-| `testsleep` | advisory | Detects `time.Sleep` used for synchronization in test files; suggests `require.Eventually` or an injected clock. |
+| `testsleep` | advisory, opt-in | Detects `time.Sleep` used for synchronization in test files; suggests `require.Eventually` or an injected clock. |
 | `logformat` | shipping | Detects `%w` verbs in Moov logger format strings; wrapping verbs are only valid in `fmt.Errorf`. |
 | `moneyfloat` | shipping | Detects float types used for monetary values (fields and params named amount, balance, fee, or total). |
-| `spanerrors` | advisory | Checks that functions which create a span record returned errors with `telemetry.RecordError` before returning. |
-| `mapderef` | advisory | Detects `m[k].Field` dereferences on maps of pointers or interfaces without a comma-ok check. |
+| `spanerrors` | advisory, opt-in | Checks that functions which create a span record returned errors with `telemetry.RecordError` before returning. |
+| `mapderef` | advisory, opt-in | Detects `m[k].Field` dereferences on maps of pointers or interfaces without a comma-ok check. |
 | `subtestassert` | shipping | Detects assertion objects created from the outer test's `t` used inside `t.Run` closures. |
-| `ctornilguard` | advisory | Checks exported `New*` constructors nil-check pointer and interface dependencies before storing them. Also flags method-level checks of dependencies validated by a private implementation's constructor. |
-| `enumcast` | advisory | Detects unchecked conversions of raw strings to enum-like named string types outside validation and mapper functions. |
+| `ctornilguard` | advisory, opt-in | Checks exported `New*` constructors nil-check pointer and interface dependencies before storing them. Also flags method-level checks of dependencies validated by a private implementation's constructor. |
+| `enumcast` | advisory, opt-in | Detects unchecked conversions of raw strings to enum-like named string types outside validation and mapper functions. |
 | `fixtureplacement` | opt-in | Flags test helpers that build same-module data models outside configured fixture packages. |
 | `modelplacement` | opt-in | Flags exported request, response, and row models in service or repository files. File and type conventions are configurable. |
 
 ### Configurable checks
 
-Placement checks are disabled by default. Enable them for a review pass before
-adding them to CI. Once enabled, findings fail the command like other analyzers;
-the Go analysis API has no separate warning severity.
+Placement checks and advisory checks are disabled by default. Enable them for
+a review pass before adding them to CI. Once enabled, findings fail the
+command like other analyzers; the Go analysis API has no separate warning
+severity.
 
 ```sh
 moovlint -fixtureplacement -fixtureplacement.enabled \
-  -modelplacement -modelplacement.enabled ./...
+  -modelplacement -modelplacement.enabled \
+  -ctornilguard -ctornilguard.enabled ./...
 ```
 
 The CLI also accepts `-mockcheck.allow-interfaces`,
 `-fixtureplacement.fixture-packages`, `-modelplacement.model-files`,
 `-modelplacement.implementation-files`, and `-modelplacement.model-types`.
+The advisory analyzers accept `-<name>.enabled`: `ctornilguard`, `spanerrors`,
+`enumcast`, `repoerrorflags`, `testsleep`, and `mapderef`.
 Each value is a Go regular expression. File patterns match base names;
 package patterns match import paths.
 
@@ -70,6 +74,8 @@ linters:
           fixtureplacement:
             enabled: true
             fixture-packages: '(^|/)(fixtures|testfixtures|testutil)(/|$)'
+          ctornilguard:
+            enabled: true
           modelplacement:
             enabled: true
             model-files: '^models?(_.*)?\.go$'
