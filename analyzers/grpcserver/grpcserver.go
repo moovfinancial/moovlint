@@ -35,10 +35,11 @@ func run(pass *analysis.Pass) (any, error) {
 			if !ok {
 				return true
 			}
-			if !implementsServerInterface(pass, typeDecl) {
+			expectedEmbed := unimplementedServerEmbed(pass, typeDecl)
+			if expectedEmbed == nil {
 				return true
 			}
-			if embedsUnimplementedServer(structType) {
+			if embedsUnimplementedServer(pass, structType, expectedEmbed) {
 				return true
 			}
 			pass.Report(analysis.Diagnostic{
@@ -51,41 +52,37 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// implementsServerInterface reports whether the struct implements, in whole or
-// in part, a generated service interface from another package. A real gRPC
-// controller has at least one method whose name matches a method of a
-// cross-package interface named *Server, and whose request type comes from
-// that same package. The plain handler-shape check (context.Context, T) (R,
-// error) matches ordinary service and repository methods, so it cannot carry
-// the rule alone.
-func implementsServerInterface(pass *analysis.Pass, typeSpec *ast.TypeSpec) bool {
+// unimplementedServerEmbed returns the generated type a controller must embed.
+// A matching method name alone is insufficient: storage code can accept a
+// protobuf request without implementing the generated server method.
+func unimplementedServerEmbed(pass *analysis.Pass, typeSpec *ast.TypeSpec) *types.Named {
 	obj := pass.TypesInfo.Defs[typeSpec.Name]
 	if obj == nil {
-		return false
+		return nil
 	}
 	named, ok := obj.Type().(*types.Named)
 	if !ok {
-		return false
+		return nil
 	}
 	methodSet := types.NewMethodSet(types.NewPointer(named))
 	for i := 0; i < methodSet.Len(); i++ {
 		fn, ok := methodSet.At(i).Obj().(*types.Func)
-		if !ok || !isGRPCHandlerSignature(fn) {
+		if !ok {
 			continue
 		}
-		if implementsServerMethod(pass, fn) {
-			return true
+		if embed := unimplementedServerMethodEmbed(pass, fn); embed != nil {
+			return embed
 		}
 	}
-	return false
+	return nil
 }
 
-// implementsServerMethod reports whether fn matches a method of a *Server
-// interface from the package that defines fn's request type.
-func implementsServerMethod(pass *analysis.Pass, fn *types.Func) bool {
+// unimplementedServerMethodEmbed returns the generated Unimplemented*Server
+// type when fn exactly matches a method on its generated *Server interface.
+func unimplementedServerMethodEmbed(pass *analysis.Pass, fn *types.Func) *types.Named {
 	sig, ok := fn.Type().(*types.Signature)
 	if !ok || sig.Params().Len() != 2 {
-		return false
+		return nil
 	}
 
 	request := sig.Params().At(1).Type()
@@ -94,16 +91,16 @@ func implementsServerMethod(pass *analysis.Pass, fn *types.Func) bool {
 	}
 	requestNamed, ok := request.(*types.Named)
 	if !ok {
-		return false
+		return nil
 	}
 	pkg := requestNamed.Obj().Pkg()
 	if pkg == nil || pkg == pass.Pkg {
-		return false
+		return nil
 	}
 
 	for _, name := range pkg.Scope().Names() {
 		typeName, ok := pkg.Scope().Lookup(name).(*types.TypeName)
-		if !ok || !strings.HasSuffix(name, "Server") {
+		if !ok || !strings.HasSuffix(name, "Server") || strings.HasPrefix(name, "Unimplemented") {
 			continue
 		}
 		iface, ok := typeName.Type().Underlying().(*types.Interface)
@@ -111,49 +108,52 @@ func implementsServerMethod(pass *analysis.Pass, fn *types.Func) bool {
 			continue
 		}
 		for i := 0; i < iface.NumMethods(); i++ {
-			if iface.Method(i).Name() == fn.Name() {
-				return true
+			method := iface.Method(i)
+			if method.Name() != fn.Name() || !sameSignature(sig, method.Type().(*types.Signature)) {
+				continue
+			}
+			embedName := "Unimplemented" + name
+			embed, ok := pkg.Scope().Lookup(embedName).(*types.TypeName)
+			if !ok {
+				continue
+			}
+			named, ok := embed.Type().(*types.Named)
+			if ok {
+				return named
 			}
 		}
 	}
-	return false
+	return nil
 }
 
-func isGRPCHandlerSignature(method *types.Func) bool {
-	sig, ok := method.Type().(*types.Signature)
-	if !ok {
+func sameSignature(left, right *types.Signature) bool {
+	if left.Variadic() != right.Variadic() || left.Params().Len() != right.Params().Len() || left.Results().Len() != right.Results().Len() {
 		return false
 	}
-	if sig.Params().Len() != 2 {
-		return false
+	for i := 0; i < left.Params().Len(); i++ {
+		if !types.Identical(left.Params().At(i).Type(), right.Params().At(i).Type()) {
+			return false
+		}
 	}
-	firstParam := sig.Params().At(0)
-	if firstParam.Type().String() != "context.Context" {
-		return false
+	for i := 0; i < left.Results().Len(); i++ {
+		if !types.Identical(left.Results().At(i).Type(), right.Results().At(i).Type()) {
+			return false
+		}
 	}
-	if sig.Results().Len() != 2 {
-		return false
-	}
-	lastResult := sig.Results().At(1)
-	return lastResult.Type().String() == "error"
+	return true
 }
 
-func embedsUnimplementedServer(structType *ast.StructType) bool {
+func embedsUnimplementedServer(pass *analysis.Pass, structType *ast.StructType, expected *types.Named) bool {
 	for _, field := range structType.Fields.List {
-		for _, name := range field.Names {
-			if strings.HasPrefix(name.Name, "Unimplemented") && strings.HasSuffix(name.Name, "Server") {
-				return true
-			}
+		if len(field.Names) != 0 {
+			continue
 		}
-		if field.Names == nil {
-			ident, ok := field.Type.(*ast.Ident)
-			if ok && strings.HasPrefix(ident.Name, "Unimplemented") && strings.HasSuffix(ident.Name, "Server") {
-				return true
-			}
-			sel, ok := field.Type.(*ast.SelectorExpr)
-			if ok && sel.Sel != nil && strings.HasPrefix(sel.Sel.Name, "Unimplemented") && strings.HasSuffix(sel.Sel.Name, "Server") {
-				return true
-			}
+		fieldType := pass.TypesInfo.TypeOf(field.Type)
+		if ptr, ok := fieldType.(*types.Pointer); ok {
+			fieldType = ptr.Elem()
+		}
+		if types.Identical(fieldType, expected) {
+			return true
 		}
 	}
 	return false
