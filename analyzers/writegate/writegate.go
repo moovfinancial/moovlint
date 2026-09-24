@@ -86,7 +86,7 @@ func run(pass *analysis.Pass) (any, error) {
 	}
 
 	for obj, writes := range localWrites {
-		if writes {
+		if writes && obj.Pkg() == pass.Pkg {
 			pass.ExportObjectFact(obj, &dbWriteFact{})
 		}
 	}
@@ -129,7 +129,7 @@ func markInterfaceMethods(pass *analysis.Pass, local map[*types.Func]bool) {
 				continue
 			}
 			obj, _, _ := types.LookupFieldOrMethod(ifaceNamed, false, pass.Pkg, fn.Name())
-			if im, ok := obj.(*types.Func); ok {
+			if im, ok := obj.(*types.Func); ok && im.Pkg() == pass.Pkg {
 				local[im] = true
 			}
 		}

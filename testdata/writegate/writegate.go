@@ -93,6 +93,25 @@ func (c *API) CreateViaIface(w http.ResponseWriter, r *http.Request, repo Reposi
 	_ = repo.Insert(r.Context(), "x") // want "database write Insert must run in an events consumer handler"
 }
 
+type ForeignServer interface {
+	CreateWidget(ctx context.Context, name string) error // want CreateWidget:"writes DB"
+}
+
+type LocalServer interface {
+	ForeignServer
+	Register()
+}
+
+type serverImpl struct {
+	Service *Service
+}
+
+func (s *serverImpl) CreateWidget(ctx context.Context, name string) error { // want CreateWidget:"writes DB"
+	return s.Service.CreateWidget(ctx, name)
+}
+
+func (s *serverImpl) Register() {}
+
 type recorder struct{ http.ResponseWriter }
 
 func (c *API) CreateViaRecorder(w recorder, r *http.Request) { // want CreateViaRecorder:"writes DB"
