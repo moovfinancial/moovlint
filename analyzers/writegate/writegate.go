@@ -12,7 +12,7 @@ import (
 
 var Analyzer = &analysis.Analyzer{
 	Name:      "writegate",
-	Doc:       "require observability/sql writes to run in an events consumer handler, not an HTTP handler",
+	Doc:       "require observability/sql writes to run in an events consumer; HTTP handlers produce an event that both active regions consume",
 	Run:       run,
 	FactTypes: []analysis.Fact{new(dbWriteFact)},
 }
@@ -197,7 +197,7 @@ func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func
 			if isSQLWriteCall(pass, x) || funcHasWrite(pass, calleeFunc(pass, x), local) {
 				pass.Report(analysis.Diagnostic{
 					Pos:     x.Pos(),
-					Message: fmt.Sprintf("database write %s must run in an events consumer handler; HTTP handlers should produce an event instead", name),
+					Message: fmt.Sprintf("database write %s must run in an events consumer handler; HTTP should produce an event so both active regions apply the write", name),
 				})
 			}
 		}
