@@ -31,6 +31,7 @@ import (
 	"github.com/moovfinancial/moovlint/analyzers/timeinject"
 	"github.com/moovfinancial/moovlint/analyzers/uuidgen"
 	"github.com/moovfinancial/moovlint/analyzers/validationflag"
+	"github.com/moovfinancial/moovlint/analyzers/writegate"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -72,5 +73,6 @@ func configuredAnalyzers(settings Settings) []*analysis.Analyzer {
 		enumcast.New(settings.EnumCast),
 		fixtureplacement.New(settings.FixturePlacement),
 		modelplacement.New(settings.ModelPlacement),
+		writegate.Analyzer,
 	}
 }

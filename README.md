@@ -36,6 +36,7 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `enumcast` | advisory, opt-in | Detects unchecked conversions of raw strings to enum-like named string types outside validation and mapper functions. |
 | `fixtureplacement` | opt-in | Flags test helpers that build same-module data models outside configured fixture packages. |
 | `modelplacement` | opt-in | Flags exported request, response, and row models in service or repository files. File and type conventions are configurable. |
+| `writegate` | shipping | Flags `github.com/moovfinancial/go-libs/observability/sql` writes (`Exec`, `ExecContext`, `InTxScope`, and methods that call them) from HTTP handlers (`http.ResponseWriter`). Writes are allowed in events consumer handlers (`eventing.EventHandlerContext`, `RecordHandler`, `EventMessageHandler`, and matching `func(context.Context, *events.Event) error` signatures). Detection is by type, not file name. |
 
 ### Configurable checks
 
