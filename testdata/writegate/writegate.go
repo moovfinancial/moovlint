@@ -32,6 +32,10 @@ func (s *Service) CreateWidget(ctx context.Context, name string) error { // want
 	return s.Repo.Insert(ctx, name)
 }
 
+func (s *Service) Add(ctx context.Context, name string) error {
+	return nil
+}
+
 type API struct {
 	Service *Service
 	Repo    *Repository
@@ -42,15 +46,27 @@ func (c *API) CreateWidget(w http.ResponseWriter, r *http.Request) { // want Cre
 	_ = c.Service.CreateWidget(r.Context(), "x") // want "database write CreateWidget must run in an events consumer handler"
 }
 
+func (c *API) AddWidget(w http.ResponseWriter, r *http.Request) {
+	_ = c.Service.Add(r.Context(), "x")
+}
+
 func (c *API) InsertDirect(w http.ResponseWriter, r *http.Request) { // want InsertDirect:"writes DB"
 	_, _ = c.Repo.DB.ExecContext(r.Context(), "INSERT INTO widgets (name) VALUES ($1)", "x") // want "database write ExecContext must run in an events consumer handler"
+}
+
+func (c *API) RetryableWrite(w http.ResponseWriter, r *http.Request) { // want RetryableWrite:"writes DB"
+	_, _ = c.Repo.DB.ExecContextRetryable(r.Context(), nil, "INSERT INTO widgets (name) VALUES ($1)", "x") // want "database write ExecContextRetryable must run in an events consumer handler"
 }
 
 func (c *API) GetWidget(w http.ResponseWriter, r *http.Request) {
 	_ = c.Repo.Get(r.Context(), "id")
 }
 
-func (h *Handler) EventHandlerContext() eventing.EventHandlerContext { // want EventHandlerContext:"writes DB"
+func (c *API) RecordHandler(w http.ResponseWriter, r *http.Request) { // want RecordHandler:"writes DB"
+	_ = c.Service.CreateWidget(r.Context(), "x") // want "database write CreateWidget must run in an events consumer handler"
+}
+
+func (h *Handler) EventHandlerContext() eventing.EventHandlerContext {
 	return func(ctx context.Context, event *v1.Event) error {
 		return h.Service.CreateWidget(ctx, event.Name)
 	}
@@ -66,22 +82,44 @@ func (h *Handler) HandleWidgetRequested(ctx context.Context, event *v1.Event) er
 
 func consume(h eventing.EventMessageHandler) {}
 
-func registerConsumer(svc *Service) { // want registerConsumer:"writes DB"
+func registerConsumer(svc *Service) {
 	consume(func(ctx context.Context, events []*eventing.EventMessage) error {
 		return svc.CreateWidget(ctx, "from-consumer")
 	})
 }
 
-func httpClosure(svc *Service) http.HandlerFunc { // want httpClosure:"writes DB"
+func consumeRaw(h eventing.RawMessageHandler) {}
+
+func registerRawConsumer(svc *Service) {
+	consumeRaw(func(ctx context.Context, msgs []*eventing.RawMessage) error {
+		return svc.CreateWidget(ctx, "raw")
+	})
+}
+
+func consumeHeaders(h eventing.EventHeaderMessageHandler) {}
+
+func registerHeaderConsumer(svc *Service) {
+	consumeHeaders(func(ctx context.Context, events []*eventing.EventHeadersMessage) error {
+		return svc.CreateWidget(ctx, "headers")
+	})
+}
+
+func httpClosure(svc *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_ = svc.CreateWidget(r.Context(), "x") // want "database write CreateWidget must run in an events consumer handler"
 	}
 }
 
 func (c *API) TxWrite(w http.ResponseWriter, r *http.Request) { // want TxWrite:"writes DB"
-	_ = c.Repo.DB.InTxScope(r.Context(), nil, func(tx *obssql.Tx) error { // want "database write InTxScope must run in an events consumer handler"
+	_ = c.Repo.DB.InTxScope(r.Context(), nil, func(tx *obssql.Tx) error {
 		_, err := tx.ExecContext(r.Context(), "INSERT INTO widgets (name) VALUES ($1)", "x") // want "database write ExecContext must run in an events consumer handler"
 		return err
+	})
+}
+
+func (c *API) TxRead(w http.ResponseWriter, r *http.Request) {
+	_ = c.Repo.DB.InTxScope(r.Context(), nil, func(tx *obssql.Tx) error {
+		return nil
 	})
 }
 
@@ -93,27 +131,30 @@ func (c *API) CreateViaIface(w http.ResponseWriter, r *http.Request, repo Reposi
 	_ = repo.Insert(r.Context(), "x") // want "database write Insert must run in an events consumer handler"
 }
 
-type ForeignServer interface {
-	CreateWidget(ctx context.Context, name string) error // want CreateWidget:"writes DB"
+type LocalWriter interface {
+	eventing.Writer
 }
 
-type LocalServer interface {
-	ForeignServer
-	Register()
+func (c *API) CreateViaEmbedded(w http.ResponseWriter, r *http.Request, repo LocalWriter) { // want CreateViaEmbedded:"writes DB"
+	_ = repo.Insert(r.Context(), "x") // want "database write Insert must run in an events consumer handler"
 }
-
-type serverImpl struct {
-	Service *Service
-}
-
-func (s *serverImpl) CreateWidget(ctx context.Context, name string) error { // want CreateWidget:"writes DB"
-	return s.Service.CreateWidget(ctx, name)
-}
-
-func (s *serverImpl) Register() {}
 
 type recorder struct{ http.ResponseWriter }
 
 func (c *API) CreateViaRecorder(w recorder, r *http.Request) { // want CreateViaRecorder:"writes DB"
 	_ = c.Service.CreateWidget(r.Context(), "x") // want "database write CreateWidget must run in an events consumer handler"
+}
+
+func (c *API) MethodValue(w http.ResponseWriter, r *http.Request) { // want MethodValue:"writes DB"
+	f := c.Repo.Insert
+	_ = f(r.Context(), "x") // want "database write f must run in an events consumer handler"
+}
+
+func GenericWrite[T any](db *obssql.DB, v T) error { // want GenericWrite:"writes DB"
+	_, err := db.ExecContext(context.Background(), "INSERT INTO widgets (name) VALUES ($1)", v)
+	return err
+}
+
+func (c *API) Generic(w http.ResponseWriter, r *http.Request) { // want Generic:"writes DB"
+	_ = GenericWrite[string](c.Repo.DB, "x") // want "database write GenericWrite must run in an events consumer handler"
 }

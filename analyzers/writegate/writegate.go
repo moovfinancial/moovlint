@@ -10,11 +10,24 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name:      "writegate",
-	Doc:       "require observability/sql writes to run in an events consumer; HTTP handlers produce an event that both active regions consume",
-	Run:       run,
-	FactTypes: []analysis.Fact{new(dbWriteFact)},
+type Config struct {
+	Enabled bool `json:"enabled"`
+}
+
+func New(cfg Config) *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name:      "writegate",
+		Doc:       "advisory: require observability/sql writes to run in an events consumer; HTTP handlers produce an event that both active regions consume",
+		FactTypes: []analysis.Fact{new(dbWriteFact)},
+	}
+	a.Flags.BoolVar(&cfg.Enabled, "enabled", cfg.Enabled, "enable advisory writegate checks")
+	a.Run = func(pass *analysis.Pass) (any, error) {
+		if !cfg.Enabled {
+			return nil, nil
+		}
+		return run(pass)
+	}
+	return a
 }
 
 type dbWriteFact struct{}
@@ -27,7 +40,6 @@ var sqlWriteMethods = map[string]bool{
 	"Exec":                 true,
 	"ExecContext":          true,
 	"ExecContextRetryable": true,
-	"InTxScope":            true,
 }
 
 var eventingHandlerNames = map[string]bool{
@@ -41,6 +53,15 @@ var eventingHandlerNames = map[string]bool{
 func run(pass *analysis.Pass) (any, error) {
 	if !moovutil.IsServicePackage(pass.Pkg.Path()) && !strings.HasPrefix(pass.Pkg.Path(), "testdata/") {
 		return nil, nil
+	}
+
+	funcValues := map[*types.Var]*types.Func{}
+	varWrites := map[*types.Var]bool{}
+	for _, file := range pass.Files {
+		if moovutil.IsTestFile(pass.Fset.Position(file.Package).Filename) {
+			continue
+		}
+		collectFuncValues(pass, file, funcValues, varWrites)
 	}
 
 	localWrites := map[*types.Func]bool{}
@@ -59,8 +80,9 @@ func run(pass *analysis.Pass) (any, error) {
 			if obj == nil {
 				continue
 			}
+			obj = originFunc(obj)
 			decls[obj] = fn
-			if bodyWrites(pass, fn.Body, nil) {
+			if bodyWrites(pass, fn.Body, nil, funcValues, varWrites) {
 				localWrites[obj] = true
 			}
 		}
@@ -73,7 +95,7 @@ func run(pass *analysis.Pass) (any, error) {
 			if localWrites[obj] {
 				continue
 			}
-			if bodyWrites(pass, fn.Body, localWrites) {
+			if bodyWrites(pass, fn.Body, localWrites, funcValues, varWrites) {
 				localWrites[obj] = true
 				changed = true
 			}
@@ -95,11 +117,70 @@ func run(pass *analysis.Pass) (any, error) {
 		if moovutil.IsTestFile(pass.Fset.Position(file.Package).Filename) {
 			continue
 		}
-		reportHTTPWrites(pass, file, localWrites)
+		reportHTTPWrites(pass, file, localWrites, funcValues, varWrites)
 	}
 	return nil, nil
 }
 
+func collectFuncValues(pass *analysis.Pass, file *ast.File, funcValues map[*types.Var]*types.Func, varWrites map[*types.Var]bool) {
+	add := func(lhs ast.Expr, rhs ast.Expr) {
+		ident, ok := lhs.(*ast.Ident)
+		if !ok {
+			return
+		}
+		v, ok := pass.TypesInfo.ObjectOf(ident).(*types.Var)
+		if !ok && pass.TypesInfo.Defs[ident] != nil {
+			v, _ = pass.TypesInfo.Defs[ident].(*types.Var)
+		}
+		if v == nil {
+			return
+		}
+		if fn := exprFunc(pass, rhs); fn != nil {
+			funcValues[v] = originFunc(fn)
+		}
+		if lit, ok := rhs.(*ast.FuncLit); ok && lit.Body != nil && bodyWrites(pass, lit.Body, nil, funcValues, varWrites) {
+			varWrites[v] = true
+		}
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.AssignStmt:
+			if len(x.Lhs) != len(x.Rhs) {
+				return true
+			}
+			for i := range x.Lhs {
+				add(x.Lhs[i], x.Rhs[i])
+			}
+		case *ast.ValueSpec:
+			for i, name := range x.Names {
+				if i >= len(x.Values) {
+					break
+				}
+				add(name, x.Values[i])
+			}
+		}
+		return true
+	})
+}
+
+func exprFunc(pass *analysis.Pass, expr ast.Expr) *types.Func {
+	expr = unwrapIndex(expr)
+	switch e := expr.(type) {
+	case *ast.Ident:
+		fn, _ := pass.TypesInfo.ObjectOf(e).(*types.Func)
+		return originFunc(fn)
+	case *ast.SelectorExpr:
+		fn, _ := pass.TypesInfo.ObjectOf(e.Sel).(*types.Func)
+		return originFunc(fn)
+	}
+	return nil
+}
+
+// markInterfaceMethods copies a concrete method's write mark onto matching
+// interface methods in this package. One writing implementer marks the
+// interface method, so every call through that interface is treated as a
+// write. That over-reports event-only implementations; that is the safe
+// direction for this gate. Facts are still exported only for this package.
 func markInterfaceMethods(pass *analysis.Pass, local map[*types.Func]bool) {
 	scope := pass.Pkg.Scope()
 	var ifaces []*types.Named
@@ -129,16 +210,25 @@ func markInterfaceMethods(pass *analysis.Pass, local map[*types.Func]bool) {
 				continue
 			}
 			obj, _, _ := types.LookupFieldOrMethod(ifaceNamed, false, pass.Pkg, fn.Name())
-			if im, ok := obj.(*types.Func); ok && im.Pkg() == pass.Pkg {
+			if im, ok := obj.(*types.Func); ok {
 				local[im] = true
 			}
 		}
 	}
 }
 
-func bodyWrites(pass *analysis.Pass, body *ast.BlockStmt, local map[*types.Func]bool) bool {
+func bodyWrites(pass *analysis.Pass, body *ast.BlockStmt, local map[*types.Func]bool, funcValues map[*types.Var]*types.Func, varWrites map[*types.Var]bool) bool {
+	if body == nil {
+		return false
+	}
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
+		}
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -147,7 +237,11 @@ func bodyWrites(pass *analysis.Pass, body *ast.BlockStmt, local map[*types.Func]
 			found = true
 			return false
 		}
-		if callee := calleeFunc(pass, call); callee != nil && funcHasWrite(pass, callee, local) {
+		if isInTxScopeCall(pass, call) && inTxScopeWrites(pass, call, local, funcValues, varWrites) {
+			found = true
+			return false
+		}
+		if callWrites(pass, call, local, funcValues, varWrites) {
 			found = true
 			return false
 		}
@@ -156,7 +250,42 @@ func bodyWrites(pass *analysis.Pass, body *ast.BlockStmt, local map[*types.Func]
 	return found
 }
 
+func inTxScopeWrites(pass *analysis.Pass, call *ast.CallExpr, local map[*types.Func]bool, funcValues map[*types.Var]*types.Func, varWrites map[*types.Var]bool) bool {
+	for _, arg := range call.Args {
+		switch a := arg.(type) {
+		case *ast.FuncLit:
+			if a.Body != nil && bodyWrites(pass, a.Body, local, funcValues, varWrites) {
+				return true
+			}
+		default:
+			if fn := exprFunc(pass, a); fn != nil && funcHasWrite(pass, fn, local) {
+				return true
+			}
+			if v := exprVar(pass, a); v != nil && (varWrites[v] || funcHasWrite(pass, funcValues[v], local)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func callWrites(pass *analysis.Pass, call *ast.CallExpr, local map[*types.Func]bool, funcValues map[*types.Var]*types.Func, varWrites map[*types.Var]bool) bool {
+	if fn := calleeFunc(pass, call); fn != nil && funcHasWrite(pass, fn, local) {
+		return true
+	}
+	if v := calleeVar(pass, call); v != nil {
+		if varWrites[v] {
+			return true
+		}
+		if fn := funcValues[v]; fn != nil && funcHasWrite(pass, fn, local) {
+			return true
+		}
+	}
+	return false
+}
+
 func funcHasWrite(pass *analysis.Pass, fn *types.Func, local map[*types.Func]bool) bool {
+	fn = originFunc(fn)
 	if fn == nil {
 		return false
 	}
@@ -167,7 +296,7 @@ func funcHasWrite(pass *analysis.Pass, fn *types.Func, local map[*types.Func]boo
 	return pass.ImportObjectFact(fn, &fact)
 }
 
-func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func]bool) {
+func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func]bool, funcValues map[*types.Var]*types.Func, varWrites map[*types.Var]bool) {
 	var stack []frame
 	var inspect func(n ast.Node) bool
 	inspect = func(n ast.Node) bool {
@@ -176,7 +305,7 @@ func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func
 		}
 		switch x := n.(type) {
 		case *ast.FuncDecl:
-			stack = append(stack, frameFrom(pass, x.Name.Name, x.Type, pass.TypesInfo.Defs[x.Name]))
+			stack = append(stack, frameFrom(pass, x.Type, pass.TypesInfo.Defs[x.Name]))
 			if x.Body != nil {
 				ast.Inspect(x.Body, inspect)
 			}
@@ -194,7 +323,7 @@ func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func
 				return true
 			}
 			name := callName(x)
-			if isSQLWriteCall(pass, x) || funcHasWrite(pass, calleeFunc(pass, x), local) {
+			if isSQLWriteCall(pass, x) || callWrites(pass, x, local, funcValues, varWrites) {
 				pass.Report(analysis.Diagnostic{
 					Pos:     x.Pos(),
 					Message: fmt.Sprintf("database write %s must run in an events consumer handler; HTTP should produce an event so both active regions apply the write", name),
@@ -214,28 +343,18 @@ type frame struct {
 func frameFromLit(pass *analysis.Pass, lit *ast.FuncLit) frame {
 	fr := frame{}
 	if t := pass.TypesInfo.TypeOf(lit); t != nil {
-		if isEventingHandlerType(t) {
-			fr.event = true
-		}
-		if sig := asSig(t); sig != nil {
-			if signatureIsHTTP(pass, sig) {
-				fr.http = true
-			}
-			if signatureLooksLikeEventHandler(sig) {
-				fr.event = true
-			}
-		}
+		applySig(&fr, pass, t)
 	} else if funcTypeHasResponseWriter(lit.Type) {
 		fr.http = true
 	}
 	return fr
 }
 
-func frameFrom(pass *analysis.Pass, name string, ft *ast.FuncType, obj types.Object) frame {
+func frameFrom(pass *analysis.Pass, ft *ast.FuncType, obj types.Object) frame {
 	fr := frame{}
 	var sig *types.Signature
 	if fn, ok := obj.(*types.Func); ok {
-		sig, _ = fn.Type().(*types.Signature)
+		sig, _ = originFunc(fn).Type().(*types.Signature)
 	}
 	if sig == nil && ft != nil {
 		if t := pass.TypesInfo.TypeOf(ft); t != nil {
@@ -243,25 +362,30 @@ func frameFrom(pass *analysis.Pass, name string, ft *ast.FuncType, obj types.Obj
 		}
 	}
 	if sig != nil {
-		if signatureIsHTTP(pass, sig) {
-			fr.http = true
-		}
-		if signatureLooksLikeEventHandler(sig) {
-			fr.event = true
-		}
-		if signatureReturnsEventHandler(sig) {
-			fr.event = true
-		}
-		if isEventingHandlerType(sig) {
-			fr.event = true
-		}
+		applySig(&fr, pass, sig)
 	} else if funcTypeHasResponseWriter(ft) {
 		fr.http = true
 	}
-	if eventingHandlerNames[name] {
+	return fr
+}
+
+func applySig(fr *frame, pass *analysis.Pass, t types.Type) {
+	if isEventingHandlerType(t) {
 		fr.event = true
 	}
-	return fr
+	sig := asSig(t)
+	if sig == nil {
+		return
+	}
+	if signatureIsHTTP(pass, sig) {
+		fr.http = true
+	}
+	if signatureLooksLikeEventHandler(sig) {
+		fr.event = true
+	}
+	if signatureReturnsEventHandler(sig) {
+		fr.event = true
+	}
 }
 
 func inHTTP(stack []frame) bool {
@@ -284,36 +408,72 @@ func inEvent(stack []frame) bool {
 
 func isSQLWriteCall(pass *analysis.Pass, call *ast.CallExpr) bool {
 	fn := calleeFunc(pass, call)
-	if fn == nil {
-		return false
-	}
-	if !sqlWriteMethods[fn.Name()] {
+	if fn == nil || !sqlWriteMethods[fn.Name()] {
 		return false
 	}
 	pkg := fn.Pkg()
 	return pkg != nil && isObsSQLPackage(pkg.Path())
 }
 
+func isInTxScopeCall(pass *analysis.Pass, call *ast.CallExpr) bool {
+	fn := calleeFunc(pass, call)
+	if fn == nil || fn.Name() != "InTxScope" {
+		return false
+	}
+	pkg := fn.Pkg()
+	return pkg != nil && isObsSQLPackage(pkg.Path())
+}
+
+func unwrapIndex(expr ast.Expr) ast.Expr {
+	for {
+		switch e := expr.(type) {
+		case *ast.IndexExpr:
+			expr = e.X
+		case *ast.IndexListExpr:
+			expr = e.X
+		case *ast.ParenExpr:
+			expr = e.X
+		default:
+			return expr
+		}
+	}
+}
+
 func calleeFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
-	var id *ast.Ident
-	switch fun := call.Fun.(type) {
-	case *ast.Ident:
-		id = fun
-	case *ast.SelectorExpr:
-		id = fun.Sel
-	default:
+	return exprFunc(pass, call.Fun)
+}
+
+func calleeVar(pass *analysis.Pass, call *ast.CallExpr) *types.Var {
+	return exprVar(pass, call.Fun)
+}
+
+func exprVar(pass *analysis.Pass, expr ast.Expr) *types.Var {
+	expr = unwrapIndex(expr)
+	ident, ok := expr.(*ast.Ident)
+	if !ok {
 		return nil
 	}
-	fn, _ := pass.TypesInfo.ObjectOf(id).(*types.Func)
+	v, _ := pass.TypesInfo.ObjectOf(ident).(*types.Var)
+	return v
+}
+
+func originFunc(fn *types.Func) *types.Func {
+	if fn == nil {
+		return nil
+	}
+	if o := fn.Origin(); o != nil {
+		return o
+	}
 	return fn
 }
 
 func callName(call *ast.CallExpr) string {
-	switch fun := call.Fun.(type) {
+	fun := unwrapIndex(call.Fun)
+	switch f := fun.(type) {
 	case *ast.Ident:
-		return fun.Name
+		return f.Name
 	case *ast.SelectorExpr:
-		return fun.Sel.Name
+		return f.Sel.Name
 	}
 	return "call"
 }
@@ -335,6 +495,13 @@ func isEventsPackage(pkg *types.Package) bool {
 		return false
 	}
 	return strings.Contains(pkg.Path(), "github.com/moovfinancial/events/")
+}
+
+func isFranzRecord(pkg *types.Package) bool {
+	if pkg == nil {
+		return false
+	}
+	return strings.Contains(pkg.Path(), "github.com/twmb/franz-go")
 }
 
 func isEventingHandlerType(t types.Type) bool {
@@ -375,8 +542,7 @@ func signatureLooksLikeEventHandler(sig *types.Signature) bool {
 	if !isNamed(sig.Params().At(0).Type(), "context", "Context") {
 		return false
 	}
-	p1 := sig.Params().At(1).Type()
-	p1 = types.Unalias(p1)
+	p1 := types.Unalias(sig.Params().At(1).Type())
 	if ptr, ok := p1.(*types.Pointer); ok {
 		if n := namedOf(ptr.Elem()); n != nil && n.Obj().Name() == "Event" && isEventsPackage(n.Obj().Pkg()) {
 			return true
@@ -388,12 +554,14 @@ func signatureLooksLikeEventHandler(sig *types.Signature) bool {
 			elem = ptr.Elem()
 		}
 		n := namedOf(elem)
-		if n == nil || n.Obj() == nil {
+		if n == nil || n.Obj() == nil || n.Obj().Pkg() == nil {
 			return false
 		}
 		switch n.Obj().Name() {
-		case "EventMessage", "RawMessage", "EventHeadersMessage", "Record":
-			return true
+		case "EventMessage", "RawMessage", "EventHeadersMessage":
+			return isEventingPackage(n.Obj().Pkg().Path())
+		case "Record":
+			return isEventingPackage(n.Obj().Pkg().Path()) || isFranzRecord(n.Obj().Pkg())
 		}
 	}
 	return false
@@ -437,7 +605,10 @@ func isResponseWriter(pass *analysis.Pass, t types.Type) bool {
 	t = types.Unalias(t)
 	rw := lookupPkgType(pass, "net/http", "ResponseWriter")
 	if rw == nil {
-		n := namedOf(t)
+		rw = responseWriterFromType(t)
+	}
+	if rw == nil {
+		n := namedOf(deref(t))
 		return n != nil && n.Obj() != nil && n.Obj().Pkg() != nil &&
 			n.Obj().Pkg().Path() == "net/http" && n.Obj().Name() == "ResponseWriter"
 	}
@@ -451,18 +622,56 @@ func isResponseWriter(pass *analysis.Pass, t types.Type) bool {
 	return types.Implements(t, iface) || types.Implements(types.NewPointer(t), iface)
 }
 
-func lookupPkgType(pass *analysis.Pass, pkgPath, name string) types.Type {
-	for _, pkg := range pass.Pkg.Imports() {
-		if pkg.Path() != pkgPath {
-			continue
+func responseWriterFromType(t types.Type) types.Type {
+	n := namedOf(deref(t))
+	if n == nil || n.Obj() == nil || n.Obj().Pkg() == nil {
+		return nil
+	}
+	pkg := n.Obj().Pkg()
+	if pkg.Path() == "net/http" {
+		if obj := pkg.Scope().Lookup("ResponseWriter"); obj != nil {
+			return obj.Type()
 		}
-		obj := pkg.Scope().Lookup(name)
-		if obj == nil {
-			return nil
+	}
+	for _, im := range pkg.Imports() {
+		if im.Path() == "net/http" {
+			if obj := im.Scope().Lookup("ResponseWriter"); obj != nil {
+				return obj.Type()
+			}
 		}
-		return obj.Type()
 	}
 	return nil
+}
+
+func lookupPkgType(pass *analysis.Pass, pkgPath, name string) types.Type {
+	seen := map[string]bool{}
+	var walk func(*types.Package) types.Type
+	walk = func(pkg *types.Package) types.Type {
+		if pkg == nil || seen[pkg.Path()] {
+			return nil
+		}
+		seen[pkg.Path()] = true
+		if pkg.Path() == pkgPath {
+			if obj := pkg.Scope().Lookup(name); obj != nil {
+				return obj.Type()
+			}
+		}
+		for _, im := range pkg.Imports() {
+			if t := walk(im); t != nil {
+				return t
+			}
+		}
+		return nil
+	}
+	return walk(pass.Pkg)
+}
+
+func deref(t types.Type) types.Type {
+	t = types.Unalias(t)
+	if p, ok := t.(*types.Pointer); ok {
+		return types.Unalias(p.Elem())
+	}
+	return t
 }
 
 func isNamed(t types.Type, pkgSuffix, name string) bool {

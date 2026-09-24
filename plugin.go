@@ -13,6 +13,7 @@ import (
 	"github.com/moovfinancial/moovlint/analyzers/repoerrorflags"
 	"github.com/moovfinancial/moovlint/analyzers/spanerrors"
 	"github.com/moovfinancial/moovlint/analyzers/testsleep"
+	"github.com/moovfinancial/moovlint/analyzers/writegate"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -30,6 +31,7 @@ type Settings struct {
 	RepoErrorFlags   repoerrorflags.Config   `json:"repoerrorflags"`
 	TestSleep        testsleep.Config        `json:"testsleep"`
 	MapDeref         mapderef.Config         `json:"mapderef"`
+	Writegate        writegate.Config        `json:"writegate"`
 }
 
 type Plugin struct {

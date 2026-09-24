@@ -18,4 +18,16 @@ type EventMessage struct {
 
 type EventMessageHandler func(batchCtx context.Context, events []*EventMessage) error
 
+type RawMessage struct{}
+
+type RawMessageHandler func(batchCtx context.Context, msgs []*RawMessage) error
+
+type EventHeadersMessage struct{}
+
+type EventHeaderMessageHandler func(batchCtx context.Context, events []*EventHeadersMessage) error
+
+type Writer interface {
+	Insert(ctx context.Context, name string) error
+}
+
 func AddEventContextHandler(handlers ...EventHandlerContext) {}

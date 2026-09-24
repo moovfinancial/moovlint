@@ -73,6 +73,6 @@ func configuredAnalyzers(settings Settings) []*analysis.Analyzer {
 		enumcast.New(settings.EnumCast),
 		fixtureplacement.New(settings.FixturePlacement),
 		modelplacement.New(settings.ModelPlacement),
-		writegate.Analyzer,
+		writegate.New(settings.Writegate),
 	}
 }
