@@ -18,7 +18,7 @@ type Config struct {
 func New(cfg Config) *analysis.Analyzer {
 	a := &analysis.Analyzer{
 		Name:      "writegate",
-		Doc:       "advisory: require observability/sql writes to run in an events consumer; HTTP handlers produce an event that both active regions consume",
+		Doc:       "advisory: require observability SQL writes to run in an events consumer; HTTP and gRPC API handlers produce an event that both active regions consume",
 		FactTypes: []analysis.Fact{new(dbWriteFact)},
 	}
 	a.Flags.BoolVar(&cfg.Enabled, "enabled", cfg.Enabled, "enable advisory writegate checks")
@@ -328,14 +328,14 @@ func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func
 			stack = stack[:len(stack)-1]
 			return false
 		case *ast.CallExpr:
-			if inHTTP(stack) && !inEvent(stack) {
+			if inAPI(stack) && !inEvent(stack) {
 				name := callName(x)
 				if isSQLWriteCall(pass, x) || callWrites(pass, x, local, funcValues, varWrites) {
 					if !reported[x.Pos()] {
 						reported[x.Pos()] = true
 						pass.Report(analysis.Diagnostic{
 							Pos:     x.Pos(),
-							Message: fmt.Sprintf("database write %s must run in an events consumer handler; HTTP should produce an event so both active regions apply the write", name),
+							Message: fmt.Sprintf("database write %s must run in an events consumer handler; API handlers should produce an event so both active regions apply the write", name),
 						})
 					}
 				}
@@ -347,8 +347,8 @@ func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func
 					continue
 				}
 				fr := frameFromLit(pass, lit)
-				if !fr.http && !fr.event && inHTTP(stack) {
-					fr.http = true
+				if !fr.api && !fr.event && inAPI(stack) {
+					fr.api = true
 				}
 				stack = append(stack, fr)
 				ast.Inspect(lit.Body, inspect)
@@ -362,7 +362,7 @@ func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func
 }
 
 type frame struct {
-	http  bool
+	api   bool
 	event bool
 }
 
@@ -371,7 +371,7 @@ func frameFromLit(pass *analysis.Pass, lit *ast.FuncLit) frame {
 	if t := pass.TypesInfo.TypeOf(lit); t != nil {
 		applySig(&fr, pass, t)
 	} else if funcTypeHasResponseWriter(lit.Type) {
-		fr.http = true
+		fr.api = true
 	}
 	return fr
 }
@@ -389,8 +389,11 @@ func frameFrom(pass *analysis.Pass, ft *ast.FuncType, obj types.Object) frame {
 	}
 	if sig != nil {
 		applySig(&fr, pass, sig)
+		if sig.Recv() != nil && embedsUnimplementedServer(sig.Recv().Type()) {
+			fr.api = true
+		}
 	} else if funcTypeHasResponseWriter(ft) {
-		fr.http = true
+		fr.api = true
 	}
 	return fr
 }
@@ -404,7 +407,7 @@ func applySig(fr *frame, pass *analysis.Pass, t types.Type) {
 		return
 	}
 	if signatureIsHTTP(pass, sig) {
-		fr.http = true
+		fr.api = true
 	}
 	if signatureLooksLikeEventHandler(sig) {
 		fr.event = true
@@ -414,8 +417,43 @@ func applySig(fr *frame, pass *analysis.Pass, t types.Type) {
 	}
 }
 
-func inHTTP(stack []frame) bool {
-	return len(stack) > 0 && stack[len(stack)-1].http
+func inAPI(stack []frame) bool {
+	return len(stack) > 0 && stack[len(stack)-1].api
+}
+
+func embedsUnimplementedServer(t types.Type) bool {
+	seen := map[types.Type]bool{}
+	var walk func(types.Type) bool
+	walk = func(t types.Type) bool {
+		if t == nil {
+			return false
+		}
+		t = deref(types.Unalias(t))
+		if seen[t] {
+			return false
+		}
+		seen[t] = true
+		n := namedOf(t)
+		if n != nil && n.Obj() != nil {
+			name := n.Obj().Name()
+			if strings.HasPrefix(name, "Unimplemented") && strings.HasSuffix(name, "Server") {
+				return true
+			}
+			t = n.Underlying()
+		}
+		st, ok := t.(*types.Struct)
+		if !ok {
+			return false
+		}
+		for i := 0; i < st.NumFields(); i++ {
+			f := st.Field(i)
+			if f.Embedded() && walk(f.Type()) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(t)
 }
 
 func inEvent(stack []frame) bool {
@@ -499,7 +537,13 @@ func isMoovPath(path, suffix string) bool {
 }
 
 func isObsSQLPackage(path string) bool {
-	return isMoovPath(path, "/observability/sql")
+	if !strings.Contains(path, "github.com/moovfinancial/") {
+		return false
+	}
+	if strings.HasSuffix(path, "/observability/sql") {
+		return true
+	}
+	return strings.Contains(path, "observability") && strings.HasSuffix(path, "/pkg/sql")
 }
 
 func isEventingPackage(path string) bool {

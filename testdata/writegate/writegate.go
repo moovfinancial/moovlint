@@ -6,6 +6,7 @@ import (
 
 	"github.com/moovfinancial/events/go/eventing"
 	v1 "github.com/moovfinancial/events/go/events/v1"
+	v1grpc "github.com/moovfinancial/events/go/grpc/widgets/v1"
 	obssql "github.com/moovfinancial/go-libs/observability/sql"
 )
 
@@ -157,6 +158,21 @@ func GenericWrite[T any](db *obssql.DB, v T) error { // want GenericWrite:"write
 
 func (c *API) Generic(w http.ResponseWriter, r *http.Request) { // want Generic:"writes DB"
 	_ = GenericWrite[string](c.Repo.DB, "x") // want "database write GenericWrite must run in an events consumer handler"
+}
+
+type grpcController struct {
+	v1grpc.UnimplementedWidgetsServer
+	Service *Service
+}
+
+func (c *grpcController) Create(ctx context.Context, req *v1grpc.CreateRequest) (*v1grpc.CreateResponse, error) { // want Create:"writes DB"
+	_ = c.Service.CreateWidget(ctx, req.Name) // want "database write CreateWidget must run in an events consumer handler"
+	return &v1grpc.CreateResponse{}, nil
+}
+
+func (c *grpcController) Upload(stream v1grpc.Widgets_UploadServer) error { // want Upload:"writes DB"
+	_ = c.Service.CreateWidget(stream.Context(), "x") // want "database write CreateWidget must run in an events consumer handler"
+	return nil
 }
 
 func (c *API) StoredClosure(w http.ResponseWriter, r *http.Request) {
