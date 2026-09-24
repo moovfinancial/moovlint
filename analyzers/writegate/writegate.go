@@ -176,14 +176,14 @@ func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func
 		}
 		switch x := n.(type) {
 		case *ast.FuncDecl:
-			stack = append(stack, frameFrom(pass, x.Name.Name, x.Type))
+			stack = append(stack, frameFrom(pass, x.Name.Name, x.Type, pass.TypesInfo.Defs[x.Name]))
 			if x.Body != nil {
 				ast.Inspect(x.Body, inspect)
 			}
 			stack = stack[:len(stack)-1]
 			return false
 		case *ast.FuncLit:
-			stack = append(stack, frameFrom(pass, "", x.Type))
+			stack = append(stack, frameFromLit(pass, x))
 			if x.Body != nil {
 				ast.Inspect(x.Body, inspect)
 			}
@@ -211,25 +211,49 @@ type frame struct {
 	event bool
 }
 
-func frameFrom(pass *analysis.Pass, name string, ft *ast.FuncType) frame {
+func frameFromLit(pass *analysis.Pass, lit *ast.FuncLit) frame {
 	fr := frame{}
-	if ft == nil {
-		return fr
-	}
-	if t := pass.TypesInfo.TypeOf(ft); t != nil {
+	if t := pass.TypesInfo.TypeOf(lit); t != nil {
 		if isEventingHandlerType(t) {
 			fr.event = true
 		}
-		if sig, ok := t.Underlying().(*types.Signature); ok {
-			if signatureIsHTTP(sig) {
+		if sig := asSig(t); sig != nil {
+			if signatureIsHTTP(pass, sig) {
 				fr.http = true
 			}
 			if signatureLooksLikeEventHandler(sig) {
 				fr.event = true
 			}
-			if signatureReturnsEventHandler(sig) {
-				fr.event = true
-			}
+		}
+	} else if funcTypeHasResponseWriter(lit.Type) {
+		fr.http = true
+	}
+	return fr
+}
+
+func frameFrom(pass *analysis.Pass, name string, ft *ast.FuncType, obj types.Object) frame {
+	fr := frame{}
+	var sig *types.Signature
+	if fn, ok := obj.(*types.Func); ok {
+		sig, _ = fn.Type().(*types.Signature)
+	}
+	if sig == nil && ft != nil {
+		if t := pass.TypesInfo.TypeOf(ft); t != nil {
+			sig = asSig(t)
+		}
+	}
+	if sig != nil {
+		if signatureIsHTTP(pass, sig) {
+			fr.http = true
+		}
+		if signatureLooksLikeEventHandler(sig) {
+			fr.event = true
+		}
+		if signatureReturnsEventHandler(sig) {
+			fr.event = true
+		}
+		if isEventingHandlerType(sig) {
+			fr.event = true
 		}
 	} else if funcTypeHasResponseWriter(ft) {
 		fr.http = true
@@ -294,23 +318,23 @@ func callName(call *ast.CallExpr) string {
 	return "call"
 }
 
+func isMoovPath(path, suffix string) bool {
+	return strings.Contains(path, "github.com/moovfinancial/") && strings.HasSuffix(path, suffix)
+}
+
 func isObsSQLPackage(path string) bool {
-	return path == "github.com/moovfinancial/go-libs/observability/sql" ||
-		strings.HasSuffix(path, "/observability/sql")
+	return isMoovPath(path, "/observability/sql")
 }
 
 func isEventingPackage(path string) bool {
-	return path == "github.com/moovfinancial/events/go/eventing" ||
-		strings.HasSuffix(path, "/events/go/eventing")
+	return isMoovPath(path, "/events/go/eventing")
 }
 
 func isEventsPackage(pkg *types.Package) bool {
 	if pkg == nil {
 		return false
 	}
-	path := pkg.Path()
-	return strings.Contains(path, "github.com/moovfinancial/events/") ||
-		strings.Contains(path, "/events/go/")
+	return strings.Contains(pkg.Path(), "github.com/moovfinancial/events/")
 }
 
 func isEventingHandlerType(t types.Type) bool {
@@ -375,12 +399,12 @@ func signatureLooksLikeEventHandler(sig *types.Signature) bool {
 	return false
 }
 
-func signatureIsHTTP(sig *types.Signature) bool {
+func signatureIsHTTP(pass *analysis.Pass, sig *types.Signature) bool {
 	if sig == nil {
 		return false
 	}
 	for i := 0; i < sig.Params().Len(); i++ {
-		if isResponseWriter(sig.Params().At(i).Type()) {
+		if isResponseWriter(pass, sig.Params().At(i).Type()) {
 			return true
 		}
 	}
@@ -406,12 +430,39 @@ func funcTypeHasResponseWriter(ft *ast.FuncType) bool {
 	return false
 }
 
-func isResponseWriter(t types.Type) bool {
-	n := namedOf(t)
-	if n == nil || n.Obj() == nil || n.Obj().Pkg() == nil {
+func isResponseWriter(pass *analysis.Pass, t types.Type) bool {
+	if t == nil {
 		return false
 	}
-	return n.Obj().Pkg().Path() == "net/http" && n.Obj().Name() == "ResponseWriter"
+	t = types.Unalias(t)
+	rw := lookupPkgType(pass, "net/http", "ResponseWriter")
+	if rw == nil {
+		n := namedOf(t)
+		return n != nil && n.Obj() != nil && n.Obj().Pkg() != nil &&
+			n.Obj().Pkg().Path() == "net/http" && n.Obj().Name() == "ResponseWriter"
+	}
+	iface, ok := rw.Underlying().(*types.Interface)
+	if !ok {
+		return false
+	}
+	if types.Identical(t, rw) {
+		return true
+	}
+	return types.Implements(t, iface) || types.Implements(types.NewPointer(t), iface)
+}
+
+func lookupPkgType(pass *analysis.Pass, pkgPath, name string) types.Type {
+	for _, pkg := range pass.Pkg.Imports() {
+		if pkg.Path() != pkgPath {
+			continue
+		}
+		obj := pkg.Scope().Lookup(name)
+		if obj == nil {
+			return nil
+		}
+		return obj.Type()
+	}
+	return nil
 }
 
 func isNamed(t types.Type, pkgSuffix, name string) bool {
@@ -432,8 +483,23 @@ func isNamed(t types.Type, pkgSuffix, name string) bool {
 }
 
 func isErrorType(t types.Type) bool {
-	n := namedOf(t)
-	return n != nil && n.Obj() != nil && n.Obj().Name() == "error" && n.Obj().Pkg() == nil
+	if t == nil {
+		return false
+	}
+	t = types.Unalias(t)
+	errObj := types.Universe.Lookup("error")
+	if errObj == nil {
+		return false
+	}
+	errT := errObj.Type()
+	if types.Identical(t, errT) {
+		return true
+	}
+	iface, ok := errT.Underlying().(*types.Interface)
+	if !ok {
+		return false
+	}
+	return types.Implements(t, iface)
 }
 
 func namedOf(t types.Type) *types.Named {

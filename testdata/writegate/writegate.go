@@ -92,3 +92,9 @@ type RepositoryIface interface {
 func (c *API) CreateViaIface(w http.ResponseWriter, r *http.Request, repo RepositoryIface) { // want CreateViaIface:"writes DB"
 	_ = repo.Insert(r.Context(), "x") // want "database write Insert must run in an events consumer handler"
 }
+
+type recorder struct{ http.ResponseWriter }
+
+func (c *API) CreateViaRecorder(w recorder, r *http.Request) { // want CreateViaRecorder:"writes DB"
+	_ = c.Service.CreateWidget(r.Context(), "x") // want "database write CreateWidget must run in an events consumer handler"
+}
