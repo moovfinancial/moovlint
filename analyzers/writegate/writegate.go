@@ -3,6 +3,7 @@ package writegate
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
 	"strings"
 
@@ -61,7 +62,7 @@ func run(pass *analysis.Pass) (any, error) {
 		if moovutil.IsTestFile(pass.Fset.Position(file.Package).Filename) {
 			continue
 		}
-		collectFuncValues(pass, file, funcValues, varWrites)
+		collectFuncValues(pass, file, funcValues, varWrites, nil)
 	}
 
 	localWrites := map[*types.Func]bool{}
@@ -107,6 +108,13 @@ func run(pass *analysis.Pass) (any, error) {
 		}
 	}
 
+	for _, file := range pass.Files {
+		if moovutil.IsTestFile(pass.Fset.Position(file.Package).Filename) {
+			continue
+		}
+		collectFuncValues(pass, file, funcValues, varWrites, localWrites)
+	}
+
 	for obj, writes := range localWrites {
 		if writes && obj.Pkg() == pass.Pkg {
 			pass.ExportObjectFact(obj, &dbWriteFact{})
@@ -122,7 +130,7 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func collectFuncValues(pass *analysis.Pass, file *ast.File, funcValues map[*types.Var]*types.Func, varWrites map[*types.Var]bool) {
+func collectFuncValues(pass *analysis.Pass, file *ast.File, funcValues map[*types.Var]*types.Func, varWrites map[*types.Var]bool, local map[*types.Func]bool) {
 	add := func(lhs ast.Expr, rhs ast.Expr) {
 		ident, ok := lhs.(*ast.Ident)
 		if !ok {
@@ -138,7 +146,7 @@ func collectFuncValues(pass *analysis.Pass, file *ast.File, funcValues map[*type
 		if fn := exprFunc(pass, rhs); fn != nil {
 			funcValues[v] = originFunc(fn)
 		}
-		if lit, ok := rhs.(*ast.FuncLit); ok && lit.Body != nil && bodyWrites(pass, lit.Body, nil, funcValues, varWrites) {
+		if lit, ok := rhs.(*ast.FuncLit); ok && lit.Body != nil && bodyWrites(pass, lit.Body, local, funcValues, varWrites) {
 			varWrites[v] = true
 		}
 	}
@@ -298,6 +306,7 @@ func funcHasWrite(pass *analysis.Pass, fn *types.Func, local map[*types.Func]boo
 
 func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func]bool, funcValues map[*types.Var]*types.Func, varWrites map[*types.Var]bool) {
 	var stack []frame
+	reported := map[token.Pos]bool{}
 	var inspect func(n ast.Node) bool
 	inspect = func(n ast.Node) bool {
 		if n == nil {
@@ -319,16 +328,33 @@ func reportHTTPWrites(pass *analysis.Pass, file *ast.File, local map[*types.Func
 			stack = stack[:len(stack)-1]
 			return false
 		case *ast.CallExpr:
-			if !inHTTP(stack) || inEvent(stack) {
-				return true
+			if inHTTP(stack) && !inEvent(stack) {
+				name := callName(x)
+				if isSQLWriteCall(pass, x) || callWrites(pass, x, local, funcValues, varWrites) {
+					if !reported[x.Pos()] {
+						reported[x.Pos()] = true
+						pass.Report(analysis.Diagnostic{
+							Pos:     x.Pos(),
+							Message: fmt.Sprintf("database write %s must run in an events consumer handler; HTTP should produce an event so both active regions apply the write", name),
+						})
+					}
+				}
 			}
-			name := callName(x)
-			if isSQLWriteCall(pass, x) || callWrites(pass, x, local, funcValues, varWrites) {
-				pass.Report(analysis.Diagnostic{
-					Pos:     x.Pos(),
-					Message: fmt.Sprintf("database write %s must run in an events consumer handler; HTTP should produce an event so both active regions apply the write", name),
-				})
+			for _, arg := range x.Args {
+				lit, ok := arg.(*ast.FuncLit)
+				if !ok || lit.Body == nil {
+					ast.Inspect(arg, inspect)
+					continue
+				}
+				fr := frameFromLit(pass, lit)
+				if !fr.http && !fr.event && inHTTP(stack) {
+					fr.http = true
+				}
+				stack = append(stack, fr)
+				ast.Inspect(lit.Body, inspect)
+				stack = stack[:len(stack)-1]
 			}
+			return false
 		}
 		return true
 	}
@@ -389,21 +415,11 @@ func applySig(fr *frame, pass *analysis.Pass, t types.Type) {
 }
 
 func inHTTP(stack []frame) bool {
-	for _, fr := range stack {
-		if fr.http {
-			return true
-		}
-	}
-	return false
+	return len(stack) > 0 && stack[len(stack)-1].http
 }
 
 func inEvent(stack []frame) bool {
-	for _, fr := range stack {
-		if fr.event {
-			return true
-		}
-	}
-	return false
+	return len(stack) > 0 && stack[len(stack)-1].event
 }
 
 func isSQLWriteCall(pass *analysis.Pass, call *ast.CallExpr) bool {

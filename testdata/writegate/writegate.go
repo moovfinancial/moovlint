@@ -158,3 +158,10 @@ func GenericWrite[T any](db *obssql.DB, v T) error { // want GenericWrite:"write
 func (c *API) Generic(w http.ResponseWriter, r *http.Request) { // want Generic:"writes DB"
 	_ = GenericWrite[string](c.Repo.DB, "x") // want "database write GenericWrite must run in an events consumer handler"
 }
+
+func (c *API) StoredClosure(w http.ResponseWriter, r *http.Request) {
+	fn := func(ctx context.Context, name string) error {
+		return c.Service.CreateWidget(ctx, name)
+	}
+	_ = fn(r.Context(), "x") // want "database write fn must run in an events consumer handler"
+}
