@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v0.0.0
 	github.com/moov-io/base v0.0.0
 	github.com/moovfinancial/errors v0.0.0
+	github.com/moovfinancial/events v0.0.0
 	github.com/moovfinancial/go-libs v0.0.0
 	github.com/stretchr/testify v0.0.0
 	go.opentelemetry.io/otel/trace v0.0.0
@@ -15,6 +16,7 @@ require (
 
 replace github.com/moov-io/base => ./moovio_base
 replace github.com/moovfinancial/errors => ./errors
+replace github.com/moovfinancial/events => ./events
 replace github.com/moovfinancial/go-libs => ./go_libs
 replace github.com/google/uuid => ./google_uuid
 replace github.com/stretchr/testify => ./testify
