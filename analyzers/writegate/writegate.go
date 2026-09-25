@@ -16,14 +16,15 @@ type Config struct {
 }
 
 func New(cfg Config) *analysis.Analyzer {
+	enabled := cfg.Enabled
 	a := &analysis.Analyzer{
 		Name:      "writegate",
 		Doc:       "advisory: require observability SQL writes to run in an events consumer; HTTP and gRPC API handlers produce an event that both active regions consume",
 		FactTypes: []analysis.Fact{new(dbWriteFact)},
 	}
-	a.Flags.BoolVar(&cfg.Enabled, "enabled", cfg.Enabled, "enable advisory writegate checks")
+	a.Flags.BoolVar(&enabled, "enabled", enabled, "enable advisory writegate checks")
 	a.Run = func(pass *analysis.Pass) (any, error) {
-		if !cfg.Enabled {
+		if !enabled {
 			return nil, nil
 		}
 		return run(pass)
@@ -604,7 +605,7 @@ func signatureLooksLikeEventHandler(sig *types.Signature) bool {
 	}
 	p1 := types.Unalias(sig.Params().At(1).Type())
 	if ptr, ok := p1.(*types.Pointer); ok {
-		if n := namedOf(ptr.Elem()); n != nil && n.Obj().Name() == "Event" && isEventsPackage(n.Obj().Pkg()) {
+		if n := namedOf(ptr.Elem()); n != nil && n.Obj() != nil && n.Obj().Name() == "Event" && n.Obj().Pkg() != nil && isEventsPackage(n.Obj().Pkg()) {
 			return true
 		}
 	}
