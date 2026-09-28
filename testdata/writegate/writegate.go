@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/moovfinancial/events/go/eventing"
+	cronv1 "github.com/moovfinancial/events/go/events/cron/cmd/v1"
 	v1 "github.com/moovfinancial/events/go/events/v1"
 	v1grpc "github.com/moovfinancial/events/go/grpc/widgets/v1"
 	obssql "github.com/moovfinancial/go-libs/observability/sql"
@@ -41,6 +42,7 @@ type API struct {
 	Service *Service
 	Repo    *Repository
 	Events  eventing.EventHandlerContext
+	Handler *Handler
 }
 
 func (c *API) CreateWidget(w http.ResponseWriter, r *http.Request) { // want CreateWidget:"writes DB"
@@ -79,6 +81,48 @@ type Handler struct {
 
 func (h *Handler) HandleWidgetRequested(ctx context.Context, event *v1.Event) error { // want HandleWidgetRequested:"writes DB"
 	return h.Service.CreateWidget(ctx, event.Name)
+}
+
+func (h *Handler) HandleTrigger(ctx context.Context, trigger *cronv1.Trigger) error { // want HandleTrigger:"writes DB"
+	return h.Service.CreateWidget(ctx, trigger.Name)
+}
+
+func (h *Handler) HandleScheduleTrigger(ctx context.Context, trigger *cronv1.ScheduleTrigger) error { // want HandleScheduleTrigger:"writes DB"
+	return h.Service.CreateWidget(ctx, trigger.Name)
+}
+
+type localTrigger struct{ Name string }
+
+func (h *Handler) HandleLocalTrigger(ctx context.Context, trigger *localTrigger) error { // want HandleLocalTrigger:"writes DB"
+	return h.Service.CreateWidget(ctx, trigger.Name)
+}
+
+func consumeCron(h func(ctx context.Context, trigger *cronv1.Trigger) error) {}
+
+func registerCron(svc *Service) {
+	consumeCron(func(ctx context.Context, trigger *cronv1.Trigger) error {
+		return svc.CreateWidget(ctx, trigger.Name)
+	})
+}
+
+func consumeSchedule(h func(ctx context.Context, trigger *cronv1.ScheduleTrigger) error) {}
+
+func registerSchedule(svc *Service) {
+	consumeSchedule(func(ctx context.Context, trigger *cronv1.ScheduleTrigger) error {
+		return svc.CreateWidget(ctx, trigger.Name)
+	})
+}
+
+func (c *API) KickWoC(w http.ResponseWriter, r *http.Request) { // want KickWoC:"writes DB"
+	_ = c.Handler.HandleTrigger(r.Context(), &cronv1.Trigger{}) // want "database write HandleTrigger must run in an events consumer handler"
+}
+
+func (c *API) KickSchedule(w http.ResponseWriter, r *http.Request) { // want KickSchedule:"writes DB"
+	_ = c.Handler.HandleScheduleTrigger(r.Context(), &cronv1.ScheduleTrigger{}) // want "database write HandleScheduleTrigger must run in an events consumer handler"
+}
+
+func (c *API) KickLocalTrigger(w http.ResponseWriter, r *http.Request) { // want KickLocalTrigger:"writes DB"
+	_ = c.Handler.HandleLocalTrigger(r.Context(), &localTrigger{}) // want "database write HandleLocalTrigger must run in an events consumer handler"
 }
 
 func consume(h eventing.EventMessageHandler) {}

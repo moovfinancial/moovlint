@@ -19,7 +19,7 @@ func New(cfg Config) *analysis.Analyzer {
 	enabled := cfg.Enabled
 	a := &analysis.Analyzer{
 		Name:      "writegate",
-		Doc:       "advisory: require observability SQL writes to run in an events consumer; HTTP and gRPC API handlers produce an event that both active regions consume",
+		Doc:       "advisory: require observability SQL writes to run in an events consumer; HTTP and gRPC API handlers produce an event that both active regions consume. Wrath of Cron Trigger and ScheduleTrigger handlers are event consumers.",
 		FactTypes: []analysis.Fact{new(dbWriteFact)},
 	}
 	a.Flags.BoolVar(&enabled, "enabled", enabled, "enable advisory writegate checks")
@@ -558,6 +558,13 @@ func isEventsPackage(pkg *types.Package) bool {
 	return strings.Contains(pkg.Path(), "github.com/moovfinancial/events/")
 }
 
+func isCronEventsPackage(pkg *types.Package) bool {
+	if !isEventsPackage(pkg) {
+		return false
+	}
+	return strings.Contains(pkg.Path(), "/events/cron/")
+}
+
 func isFranzRecord(pkg *types.Package) bool {
 	if pkg == nil {
 		return false
@@ -605,8 +612,17 @@ func signatureLooksLikeEventHandler(sig *types.Signature) bool {
 	}
 	p1 := types.Unalias(sig.Params().At(1).Type())
 	if ptr, ok := p1.(*types.Pointer); ok {
-		if n := namedOf(ptr.Elem()); n != nil && n.Obj() != nil && n.Obj().Name() == "Event" && n.Obj().Pkg() != nil && isEventsPackage(n.Obj().Pkg()) {
-			return true
+		if n := namedOf(ptr.Elem()); n != nil && n.Obj() != nil && n.Obj().Pkg() != nil {
+			switch n.Obj().Name() {
+			case "Event":
+				if isEventsPackage(n.Obj().Pkg()) {
+					return true
+				}
+			case "Trigger", "ScheduleTrigger":
+				if isCronEventsPackage(n.Obj().Pkg()) {
+					return true
+				}
+			}
 		}
 	}
 	if sl, ok := p1.(*types.Slice); ok {
