@@ -6,6 +6,7 @@ type Span struct{}
 
 func (s Span) End(opts ...any)                 {}
 func (s Span) SetName(name string)             {}
+func (s Span) AddEvent(name string, opts ...any) {}
 func (s Span) RecordError(err error, opts ...any) {}
 
 func StartSpan(ctx context.Context, spanName string, opts ...any) (context.Context, Span) {
@@ -23,3 +24,5 @@ func RecordError(ctx context.Context, err error, opts ...any) error { return err
 func RecordErrorAtLow(ctx context.Context, err error, opts ...any) error { return err }
 
 func SetAttributes(ctx context.Context, kv ...any) {}
+
+func SpanFromContext(ctx context.Context) Span { return Span{} }

@@ -26,6 +26,19 @@ type EventHeadersMessage struct{}
 
 type EventHeaderMessageHandler func(batchCtx context.Context, events []*EventHeadersMessage) error
 
+type InitializedEvent struct{}
+
+type RawBytes struct{}
+
+// Producer mirrors eventing.Producer. Produce/ProduceBytes open a "producing"
+// span internally, so callers must not wrap them in a manual child span.
+type Producer interface {
+	Event(ctx context.Context, topic string, idOrKey string, data *v1.EventData) (InitializedEvent, error)
+	Produce(ctx context.Context, datas ...InitializedEvent) ([]InitializedEvent, error)
+	ProduceBytes(ctx context.Context, msgs ...RawBytes) error
+	Flush(ctx context.Context) error
+}
+
 type Writer interface {
 	Insert(ctx context.Context, name string) error
 }
