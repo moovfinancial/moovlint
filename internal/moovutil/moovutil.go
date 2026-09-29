@@ -148,3 +148,42 @@ func HasContextFirstParam(pass *analysis.Pass, fn *ast.FuncDecl) bool {
 		named.Obj().Pkg().Path() == "context" &&
 		named.Obj().Name() == "Context"
 }
+
+// IsAutoInstrumentedPackage returns true if the package path belongs to a
+// library that already emits its own spans for the work it performs. Manually
+// wrapping a call into one of these in a child span duplicates an
+// auto-generated span, which the telemetry guide calls out as a pitfall
+// ("Duplicating auto-generated spans with manual child spans (e.g. database
+// operations, producing events)").
+func IsAutoInstrumentedPackage(pkgPath string) bool {
+	switch pkgPath {
+	case "database/sql", "cloud.google.com/go/spanner":
+		return true
+	}
+	// Kafka event production/consumption: eventing.Producer.Produce opens a
+	// "producing" span, the consumer loop opens a "consuming" span.
+	if strings.Contains(pkgPath, "github.com/moovfinancial/") && strings.HasSuffix(pkgPath, "/events/go/eventing") {
+		return true
+	}
+	// The instrumented SQL wrappers in go-libs (and the per-service copies).
+	if strings.Contains(pkgPath, "github.com/moovfinancial/") {
+		if strings.HasSuffix(pkgPath, "/observability/sql") {
+			return true
+		}
+		if strings.Contains(pkgPath, "observability") && strings.HasSuffix(pkgPath, "/pkg/sql") {
+			return true
+		}
+	}
+	return false
+}
+
+// IsContextType returns true if t is context.Context.
+func IsContextType(t types.Type) bool {
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	return obj != nil && obj.Pkg() != nil &&
+		obj.Pkg().Path() == "context" && obj.Name() == "Context"
+}
