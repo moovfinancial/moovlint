@@ -15,6 +15,12 @@ func (c *Client) ReadWriteTransaction(ctx context.Context, f func(context.Contex
 	return time.Time{}, nil
 }
 
+type TransactionOptions struct{}
+
+func (c *Client) ReadWriteTransactionWithOptions(ctx context.Context, f func(context.Context, *ReadWriteTransaction) error, opts TransactionOptions) (time.Time, error) {
+	return time.Time{}, nil
+}
+
 type Mutation struct{}
 
 type Row struct{}
@@ -27,6 +33,20 @@ type Statement struct {
 type Key []any
 
 type ReadWriteTransaction struct{}
+
+func (t *ReadWriteTransaction) Update(ctx context.Context, stmt Statement) (int64, error) {
+	return 0, nil
+}
+
+func (t *ReadWriteTransaction) Query(ctx context.Context, stmt Statement) *RowIterator {
+	return &RowIterator{}
+}
+
+func NewStatement(sql string) Statement { return Statement{SQL: sql} }
+
+type RowIterator struct{}
+
+func (r *RowIterator) Stop() {}
 
 func ErrCode(err error) string { return "" }
 
