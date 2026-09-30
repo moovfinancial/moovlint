@@ -39,3 +39,7 @@ func (s *Service) OKNotEqual(first, second mid.ID[mid.Account]) bool {
 func (s *Service) OKStringEqual(first, second string) bool {
 	return first == second
 }
+
+func (s *Service) OKStringCompareWithoutOptIn(first, second mid.ID[mid.Account]) bool {
+	return first.String() == second.String()
+}
