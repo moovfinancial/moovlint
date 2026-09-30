@@ -38,6 +38,25 @@ func NewStoreNoDeps() *Store {
 	return &Store{}
 }
 
+type Notifier struct {
+	clock  Clock
+	events Clock
+}
+
+// NewNotifier does not guard events because Notify tolerates a nil events.
+func NewNotifier(clock Clock, events Clock) (*Notifier, error) { // want "NewNotifier stores dependencies without a nil guard: clock;"
+	n := &Notifier{clock: clock}
+	n.events = events
+	return n, nil
+}
+
+func (n *Notifier) Notify() int64 {
+	if n.events == nil {
+		return n.clock.Now()
+	}
+	return n.events.Now()
+}
+
 type systemClock struct{}
 
 func (systemClock) Now() int64 { return 0 }

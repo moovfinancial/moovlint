@@ -3,6 +3,8 @@ package repoerrorflags
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
+	"go/types"
 
 	"github.com/moovfinancial/moovlint/internal/moovutil"
 	"golang.org/x/tools/go/analysis"
@@ -48,7 +50,7 @@ func run(pass *analysis.Pass) (any, error) {
 				return true
 			}
 
-			if hasFlagInBody(pass, ifStmt.Body, expectedFlag) {
+			if !propagatesUnflagged(pass, ifStmt, expectedFlag) {
 				return true
 			}
 
@@ -62,9 +64,65 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
+var errorIface = types.Universe.Lookup("error").Type().Underlying().(*types.Interface)
+
+// propagatesUnflagged reports whether the branch returns the database error
+// without the expected flag. A branch that recovers (returns nil, or returns
+// an error that does not come from the checked error) is not a finding.
+func propagatesUnflagged(pass *analysis.Pass, ifStmt *ast.IfStmt, flag string) bool {
+	checked := make(map[types.Object]bool)
+	ast.Inspect(ifStmt.Cond, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok {
+			if v, ok := pass.TypesInfo.ObjectOf(id).(*types.Var); ok && types.Implements(v.Type(), errorIface) {
+				checked[v] = true
+			}
+		}
+		return true
+	})
+
+	found := false
+	ast.Inspect(ifStmt.Body, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok || found {
+			return false
+		}
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		for _, res := range ret.Results {
+			t := pass.TypesInfo.TypeOf(res)
+			if pass.TypesInfo.Types[res].IsNil() || t == nil || !types.Implements(t, errorIface) {
+				continue
+			}
+			if hasFlagCall(pass, res, flag) {
+				continue
+			}
+			if len(checked) == 0 || references(pass, res, checked) {
+				found = true
+			}
+		}
+		return true
+	})
+	return found
+}
+
+func references(pass *analysis.Pass, expr ast.Expr, objs map[types.Object]bool) bool {
+	found := false
+	ast.Inspect(expr, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && objs[pass.TypesInfo.ObjectOf(id)] {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
 func detectExpectedFlag(pass *analysis.Pass, ifStmt *ast.IfStmt) string {
+	if call, ok := ast.Unparen(ifStmt.Cond).(*ast.CallExpr); ok && isSQLErrNoRowsCheck(pass, call) {
+		return "NotFound"
+	}
 	bin, ok := ifStmt.Cond.(*ast.BinaryExpr)
-	if !ok {
+	if !ok || bin.Op != token.EQL {
 		return ""
 	}
 	for _, side := range []ast.Expr{bin.X, bin.Y} {
@@ -85,9 +143,6 @@ func detectExpectedFlag(pass *analysis.Pass, ifStmt *ast.IfStmt) string {
 					return "NotFound"
 				}
 			}
-		}
-		if isSQLErrNoRowsCheck(pass, call) {
-			return "NotFound"
 		}
 	}
 	return ""
@@ -129,27 +184,6 @@ func isSQLErrNoRowsCheck(pass *analysis.Pass, call *ast.CallExpr) bool {
 		return false
 	}
 	return arg.Sel.Name == "ErrNoRows"
-}
-
-func hasFlagInBody(pass *analysis.Pass, body *ast.BlockStmt, expectedFlag string) bool {
-	found := false
-	ast.Inspect(body, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		ret, ok := n.(*ast.ReturnStmt)
-		if !ok {
-			return true
-		}
-		for _, expr := range ret.Results {
-			if hasFlagCall(pass, expr, expectedFlag) {
-				found = true
-				return false
-			}
-		}
-		return true
-	})
-	return found
 }
 
 func hasFlagCall(pass *analysis.Pass, expr ast.Expr, flagName string) bool {
