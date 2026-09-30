@@ -58,6 +58,56 @@ func TestPluginSettings(t *testing.T) {
 	}
 }
 
+func TestPluginOptInSettings(t *testing.T) {
+	want := map[string]string{
+		"timeinject":       "timers",
+		"subtestassert":    "outert",
+		"midusage":         "stringcompare",
+		"testlog":          "enabled",
+		"spannertxcapture": "enabled",
+		"spannersql":       "enabled",
+		"wrapnil":          "enabled",
+		"enumliteral":      "enabled",
+	}
+	settings := map[string]any{}
+	for name, flag := range want {
+		settings[name] = map[string]any{flag: true}
+	}
+	for _, tc := range []struct {
+		name     string
+		settings any
+		value    string
+	}{
+		{name: "default off", value: "false"},
+		{name: "enabled", settings: settings, value: "true"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plugin, err := New(tc.settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			analyzers, err := plugin.BuildAnalyzers()
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := 0
+			for _, a := range analyzers {
+				flag, ok := want[a.Name]
+				if !ok {
+					continue
+				}
+				found++
+				if got := a.Flags.Lookup(flag).Value.String(); got != tc.value {
+					t.Errorf("%s.%s = %s, want %s", a.Name, flag, got, tc.value)
+				}
+			}
+			if found != len(want) {
+				t.Fatalf("got %d opt-in analyzers, want %d", found, len(want))
+			}
+		})
+	}
+}
+
 func TestAnalyzerConfigIsolation(t *testing.T) {
 	first := AllAnalyzers()
 	second := AllAnalyzers()
