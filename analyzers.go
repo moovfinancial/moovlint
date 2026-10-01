@@ -7,6 +7,7 @@ import (
 	"github.com/moovfinancial/moovlint/analyzers/ctornilguard"
 	"github.com/moovfinancial/moovlint/analyzers/enumcast"
 	"github.com/moovfinancial/moovlint/analyzers/enumliteral"
+	"github.com/moovfinancial/moovlint/analyzers/errmsgconst"
 	"github.com/moovfinancial/moovlint/analyzers/fixtureplacement"
 	"github.com/moovfinancial/moovlint/analyzers/grpcserver"
 	"github.com/moovfinancial/moovlint/analyzers/grpcstatus"
@@ -84,5 +85,6 @@ func configuredAnalyzers(settings Settings) []*analysis.Analyzer {
 		spannersql.New(settings.SpannerSQL),
 		wrapnil.New(settings.WrapNil),
 		enumliteral.New(settings.EnumLiteral),
+		errmsgconst.New(settings.ErrMsgConst),
 	}
 }

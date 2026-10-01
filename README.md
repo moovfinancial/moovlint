@@ -30,7 +30,7 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `testsleep` | advisory, opt-in | Detects `time.Sleep` used for synchronization in test files; suggests `require.Eventually` or an injected clock. |
 | `logformat` | shipping | Detects `%w` verbs in Moov logger format strings; wrapping verbs are only valid in `fmt.Errorf`. |
 | `moneyfloat` | shipping | Detects float types used for monetary values (fields and params named amount, balance, fee, or total). |
-| `spanerrors` | advisory, opt-in | Checks each error return after a span starts. The return must wrap `telemetry.RecordError`, follow a record call in an enclosing block, or be covered by a deferred record. |
+| `spanerrors` | advisory, opt-in | Checks that an error created in a function that starts a span (`errors.New`, `fmt.Errorf` without `%w`, or `errors.Flag` on such an error) is recorded there with `telemetry.RecordError` or `RecordErrorAt<Level>`. Errors passed up from a callee, bare or wrapped with `%w`, are not flagged: they were recorded where they started, and recording again duplicates the exception event. A record call is accepted when it wraps the returned value, comes earlier in an enclosing block, or runs in a deferred closure. |
 | `mapderef` | advisory, opt-in | Detects `m[k].Field` dereferences on maps of pointers or interfaces without a comma-ok check. Slice and array indexing is not flagged. |
 | `subtestassert` | shipping | Detects assertion objects created from the outer test's `t` used inside `t.Run` closures. Opt-in `subtestassert.outert` also flags the outer `*testing.T` used inside the closure, directly (`require.NoError(t, ...)`) or through a captured field (`scope.T`). |
 | `ctornilguard` | advisory, opt-in | Checks exported `New*` constructors nil-check pointer and interface dependencies before storing them. A dependency stored in a field that package code compares with nil is optional and is not flagged. Also flags method-level checks of dependencies validated by a private implementation's constructor. |
@@ -42,6 +42,7 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `spannersql` | opt-in | Detects Spanner SQL (`spanner.Statement` `SQL` field or `spanner.NewStatement` argument) built with `fmt.Sprintf` from a non-constant value, directly or through a local variable. Pass values in `Statement.Params`. Sprintf with only constant arguments is allowed. |
 | `wrapnil` | opt-in | Flags `fmt.Errorf("...%w", err)` inside an `if err != nil \|\| <other>` body, where `err` can be nil and `%w` then wraps nil (`%!w(<nil>)`). |
 | `enumliteral` | opt-in | Flags raw string literals used where a typed enum constant exists for that value (comparisons, switch cases, assignments, arguments, returns, `T("x")` conversions); suggests the constant. |
+| `errmsgconst` | opt-in | Detects error messages built from non-constant values: `fmt.Errorf` verbs other than `%w` on a value that is not an error or a constant, and `errors.New(fmt.Sprintf(...))`. Keep the message constant and record the value as a span attribute, so `GROUP BY exception.message` groups the same failure. Errors are allowed with any verb (`%v` drops flags on purpose). |
 
 ### Configurable checks
 
@@ -61,7 +62,7 @@ The CLI also accepts `-mockcheck.allow-interfaces`,
 `-modelplacement.implementation-files`, and `-modelplacement.model-types`.
 The opt-in analyzers accept `-<name>.enabled`: `ctornilguard`, `spanerrors`,
 `enumcast`, `repoerrorflags`, `testsleep`, `testlog`, `mapderef`,
-`spannertxcapture`, `spannersql`, `wrapnil`, and `enumliteral`. Opt-in
+`spannertxcapture`, `spannersql`, `wrapnil`, `enumliteral`, and `errmsgconst`. Opt-in
 extensions of shipping analyzers use their own flag:
 `-timeinject.timers`, `-subtestassert.outert`, and `-midusage.stringcompare`.
 Each value is a Go regular expression. File patterns match base names;

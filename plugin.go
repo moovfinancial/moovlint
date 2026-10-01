@@ -7,6 +7,7 @@ import (
 	"github.com/moovfinancial/moovlint/analyzers/ctornilguard"
 	"github.com/moovfinancial/moovlint/analyzers/enumcast"
 	"github.com/moovfinancial/moovlint/analyzers/enumliteral"
+	"github.com/moovfinancial/moovlint/analyzers/errmsgconst"
 	"github.com/moovfinancial/moovlint/analyzers/fixtureplacement"
 	"github.com/moovfinancial/moovlint/analyzers/mapderef"
 	"github.com/moovfinancial/moovlint/analyzers/midusage"
@@ -45,6 +46,7 @@ type Settings struct {
 	SpannerSQL       spannersql.Config       `json:"spannersql"`
 	WrapNil          wrapnil.Config          `json:"wrapnil"`
 	EnumLiteral      enumliteral.Config      `json:"enumliteral"`
+	ErrMsgConst      errmsgconst.Config      `json:"errmsgconst"`
 	TimeInject       timeinject.Config       `json:"timeinject"`
 	SubtestAssert    subtestassert.Config    `json:"subtestassert"`
 	MidUsage         midusage.Config         `json:"midusage"`

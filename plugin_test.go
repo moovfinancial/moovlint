@@ -68,6 +68,7 @@ func TestPluginOptInSettings(t *testing.T) {
 		"spannersql":       "enabled",
 		"wrapnil":          "enabled",
 		"enumliteral":      "enabled",
+		"errmsgconst":      "enabled",
 	}
 	settings := map[string]any{}
 	for name, flag := range want {
