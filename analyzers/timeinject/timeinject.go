@@ -11,10 +11,21 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name: "timeinject",
-	Doc:  "detects time.Now()/time.Since()/time.Until() calls in service methods with a stime.TimeService field (replace with the injected clock's .Now() plus duration arithmetic), and time.Now passed as a clock value instead of an injected clock",
-	Run:  run,
+// Config holds opt-in extensions. The base checks always run.
+type Config struct {
+	// Timers also flags wall-clock timers (time.NewTimer, After, AfterFunc,
+	// Tick, NewTicker) in methods whose receiver has a TimeService field.
+	Timers bool `json:"timers"`
+}
+
+func New(cfg Config) *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name: "timeinject",
+		Doc:  "detects time.Now()/time.Since()/time.Until() calls in service methods with a stime.TimeService field (replace with the injected clock's .Now() plus duration arithmetic), and time.Now passed as a clock value instead of an injected clock",
+	}
+	a.Flags.BoolVar(&cfg.Timers, "timers", cfg.Timers, "also flag wall-clock timers in methods with an injected TimeService")
+	a.Run = func(pass *analysis.Pass) (any, error) { return run(pass, cfg) }
+	return a
 }
 
 // targetFuncs are the time package functions that internally call time.Now()
@@ -24,7 +35,16 @@ var targetFuncs = map[string]bool{
 	"Until": true,
 }
 
-func run(pass *analysis.Pass) (any, error) {
+// timerFuncs are the time package functions that schedule on the wall clock.
+var timerFuncs = map[string]bool{
+	"NewTimer":  true,
+	"After":     true,
+	"AfterFunc": true,
+	"Tick":      true,
+	"NewTicker": true,
+}
+
+func run(pass *analysis.Pass, cfg Config) (any, error) {
 	if !moovutil.IsServicePackage(pass.Pkg.Path()) {
 		return nil, nil
 	}
@@ -57,11 +77,19 @@ func run(pass *analysis.Pass) (any, error) {
 					return true
 				}
 				funcName := sel.Sel.Name
-				if !targetFuncs[funcName] {
+				if !targetFuncs[funcName] && (!cfg.Timers || !timerFuncs[funcName]) {
 					return true
 				}
 				pkgIdent, ok := sel.X.(*ast.Ident)
 				if !ok || pkgIdent.Name != "time" {
+					return true
+				}
+				if timerFuncs[funcName] {
+					pass.Report(analysis.Diagnostic{
+						Pos: call.Pos(),
+						Message: fmt.Sprintf("time.%s schedules on the wall clock; derive the duration from your injected TimeService "+
+							"or inject the timer so tests control it", funcName),
+					})
 					return true
 				}
 				pass.Report(analysis.Diagnostic{

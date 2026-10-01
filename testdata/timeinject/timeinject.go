@@ -39,6 +39,10 @@ func (s *Service) GoodUntil(ctx context.Context) {
 	_ = deadline.Sub(s.clock.Now()) // correct: use injected clock
 }
 
+func (s *Service) OKTimerWithoutOptIn(ctx context.Context) {
+	_ = time.NewTimer(time.Second)
+}
+
 type NoTimeService struct{}
 
 func (s *NoTimeService) OKNow(ctx context.Context) {

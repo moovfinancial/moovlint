@@ -15,28 +15,34 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `grpcstatus` | shipping | Checks that gRPC handler methods return errors through `GrpcErrorStatus`. |
 | `grpcserver` | shipping | Checks that gRPC controller structs embed their generated `Unimplemented*Server` type. A struct counts as a controller only when one of its methods matches a method of a cross-package `*Server` interface and takes that package's request type; ordinary `(context.Context, T) (R, error)` methods do not trigger it. |
 | `httpdecodeflag` | shipping | Checks that HTTP request body decode errors are wrapped with `errors.Flag(..., errors.NotSerializable)`. |
-| `midusage` | shipping | Detects `mid.MustParseID` outside test files and direct equality comparisons on `mid.ID`; use `Equals`. |
+| `midusage` | shipping | Detects `mid.MustParseID` outside test files and direct equality comparisons on `mid.ID`; use `Equals`. Opt-in `midusage.stringcompare` also flags `a.String() == b.String()` on two IDs and `id.String() == ""` (use `IsEmpty()`). |
 | `oteltags` | shipping | Checks that `otel` struct tags use lower snake case and do not include `omitempty`; flags map/slice-of-struct/nested types. `otel:"-"` is the skip marker and is allowed, as are `time.Time` fields and types implementing `AttributeStringer` or a `Value()` method, which record one scalar attribute. |
 | `controllerassert` | shipping | Checks that HTTP controller structs with `AppendRoutes` have a compile-time interface assertion. |
-| `repoerrorflags` | advisory, opt-in | Checks that repository methods flag expected database errors (AlreadyExists→NotUnique, NotFound→NotFound) with the correct `errors.Flag`. |
-| `timeinject` | shipping | Detects `time.Now()`/`time.Since()`/`time.Until()` calls in service methods that have a `stime.TimeService` field on their receiver, and `time.Now` passed as a clock value instead of an injected clock. |
+| `repoerrorflags` | advisory, opt-in | Checks that repository methods flag expected database errors (AlreadyExists→NotUnique, NotFound→NotFound) with the correct `errors.Flag`. Only `==` checks and `errors.Is(err, sql.ErrNoRows)` count, and only branches that return the checked error; a branch that recovers (returns nil or a different error) is not flagged. |
+| `timeinject` | shipping | Detects `time.Now()`/`time.Since()`/`time.Until()` calls in service methods that have a `stime.TimeService` field on their receiver, and `time.Now` passed as a clock value instead of an injected clock. Opt-in `timeinject.timers` also flags `time.NewTimer`, `After`, `AfterFunc`, `Tick`, and `NewTicker` in those methods. |
 | `contextcancel` | shipping | Checks that `context.WithCancel`/`WithTimeout`/`WithDeadline` results have a corresponding `defer cancel()`. A cancel value that is returned or captured by a shutdown closure is managed by its receiver and is not flagged; a blank discard is. |
 | `nolintguard` | shipping | Checks that `//nolint` directives target a specific linter and include an explanation. |
 | `blankdiscard` | shipping | Detects `_ =` blank discards of error and `sql.Result` returns without an inline justification comment. |
 | `uuidgen` | shipping | Detects `uuid.New*` used for ID generation in mid-based services; requires `mid.NewRandomID` so entity IDs carry their type. |
 | `requiregoroutine` | shipping | Detects `require.*` and `t.Fatal`/`FailNow` calls inside goroutine closures (go statements, httptest handlers, callbacks) in test files. |
 | `spanname` | shipping | Checks span names passed to `telemetry.StartSpan`/`StartLinkedRootSpan`/`SetName` are lower-kebab-case. |
+| `testlog` | opt-in | Detects `Log` and `Logf` calls on `testing.T`, `B`, `F`, and `TB`. Assert the value, or put the context in the failure message. Enable with `testlog.enabled`. |
 | `testsleep` | advisory, opt-in | Detects `time.Sleep` used for synchronization in test files; suggests `require.Eventually` or an injected clock. |
 | `logformat` | shipping | Detects `%w` verbs in Moov logger format strings; wrapping verbs are only valid in `fmt.Errorf`. |
 | `moneyfloat` | shipping | Detects float types used for monetary values (fields and params named amount, balance, fee, or total). |
-| `spanerrors` | advisory, opt-in | Checks that functions which create a span record returned errors with `telemetry.RecordError` before returning. |
-| `mapderef` | advisory, opt-in | Detects `m[k].Field` dereferences on maps of pointers or interfaces without a comma-ok check. |
-| `subtestassert` | shipping | Detects assertion objects created from the outer test's `t` used inside `t.Run` closures. |
-| `ctornilguard` | advisory, opt-in | Checks exported `New*` constructors nil-check pointer and interface dependencies before storing them. Also flags method-level checks of dependencies validated by a private implementation's constructor. |
+| `spanerrors` | advisory, opt-in | Checks that an error created in a function that starts a span (`errors.New`, `fmt.Errorf` without `%w`, or `errors.Flag` on such an error) is recorded there with `telemetry.RecordError` or `RecordErrorAt<Level>`. Errors passed up from a callee, bare or wrapped with `%w`, are not flagged: they were recorded where they started, and recording again duplicates the exception event. A record call is accepted when it wraps the returned value, comes earlier in an enclosing block, or runs in a deferred closure. |
+| `mapderef` | advisory, opt-in | Detects `m[k].Field` dereferences on maps of pointers or interfaces without a comma-ok check. Slice and array indexing is not flagged. |
+| `subtestassert` | shipping | Detects assertion objects created from the outer test's `t` used inside `t.Run` closures. Opt-in `subtestassert.outert` also flags the outer `*testing.T` used inside the closure, directly (`require.NoError(t, ...)`) or through a captured field (`scope.T`). |
+| `ctornilguard` | advisory, opt-in | Checks exported `New*` constructors nil-check pointer and interface dependencies before storing them. A dependency stored in a field that package code compares with nil is optional and is not flagged. Also flags method-level checks of dependencies validated by a private implementation's constructor. |
 | `enumcast` | advisory, opt-in | Detects unchecked conversions of raw strings to enum-like named string types outside validation and mapper functions. |
 | `fixtureplacement` | opt-in | Flags test helpers that build same-module data models outside configured fixture packages. |
 | `modelplacement` | opt-in | Flags exported request, response, and row models in service or repository files. File and type conventions are configurable. |
 | `writegate` | advisory, opt-in | Flags observability SQL writes (`go-libs/observability/sql` and `go-observability/v2/pkg/sql` Exec/ExecContext/ExecContextRetryable, and methods that reach them) from API handlers: HTTP (`http.ResponseWriter`) and gRPC (types embedding `Unimplemented*Server`). API handlers should produce an event; consumers in both active regions apply the write. Writes are allowed in events consumer handlers (`eventing.EventHandlerContext`, `RecordHandler`, `EventMessageHandler`, matching `*events.Event` signatures, and Wrath of Cron `*cron.Trigger` / `*cron.ScheduleTrigger` handlers). HTTP ops endpoints that call those write methods are still flagged. Detection is by type, not file name. Enable with `writegate.enabled`. |
+| `spannertxcapture` | opt-in | Flags variables from outside a Spanner `ReadWriteTransaction(WithOptions)` closure that the closure accumulates into (`+=`, `++`, `x = append(x, ...)`, `m[k] = v`) or sets conditionally, without a reset at the start of the closure. Spanner reruns the closure on abort, so the next attempt starts with state from the failed attempt. Captured `error` variables are skipped. |
+| `spannersql` | opt-in | Detects Spanner SQL (`spanner.Statement` `SQL` field or `spanner.NewStatement` argument) built with `fmt.Sprintf` from a non-constant value, directly or through a local variable. Pass values in `Statement.Params`. Sprintf with only constant arguments is allowed. |
+| `wrapnil` | opt-in | Flags `fmt.Errorf("...%w", err)` inside an `if err != nil \|\| <other>` body, where `err` can be nil and `%w` then wraps nil (`%!w(<nil>)`). |
+| `enumliteral` | opt-in | Flags raw string literals used where a typed enum constant exists for that value (comparisons, switch cases, assignments, arguments, returns, `T("x")` conversions); suggests the constant. |
+| `errmsgconst` | opt-in | Detects error messages built from non-constant values: `fmt.Errorf` verbs other than `%w` on a value that is not an error or a constant, and `errors.New(fmt.Sprintf(...))`. Keep the message constant and record the value as a span attribute, so `GROUP BY exception.message` groups the same failure. Errors are allowed with any verb (`%v` drops flags on purpose). |
 
 ### Configurable checks
 
@@ -54,8 +60,11 @@ moovlint -fixtureplacement -fixtureplacement.enabled \
 The CLI also accepts `-mockcheck.allow-interfaces`,
 `-fixtureplacement.fixture-packages`, `-modelplacement.model-files`,
 `-modelplacement.implementation-files`, and `-modelplacement.model-types`.
-The advisory analyzers accept `-<name>.enabled`: `ctornilguard`, `spanerrors`,
-`enumcast`, `repoerrorflags`, `testsleep`, and `mapderef`.
+The opt-in analyzers accept `-<name>.enabled`: `ctornilguard`, `spanerrors`,
+`enumcast`, `repoerrorflags`, `testsleep`, `testlog`, `mapderef`,
+`spannertxcapture`, `spannersql`, `wrapnil`, `enumliteral`, and `errmsgconst`. Opt-in
+extensions of shipping analyzers use their own flag:
+`-timeinject.timers`, `-subtestassert.outert`, and `-midusage.stringcompare`.
 Each value is a Go regular expression. File patterns match base names;
 package patterns match import paths.
 

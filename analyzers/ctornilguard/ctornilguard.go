@@ -35,6 +35,7 @@ func run(pass *analysis.Pass) (any, error) {
 		return nil, nil
 	}
 	checkMethodGuards(pass)
+	optional := nilCheckedFields(pass)
 
 	for _, file := range pass.Files {
 		if moovutil.IsTestFile(pass.Fset.Position(file.Package).Filename) {
@@ -62,7 +63,8 @@ func run(pass *analysis.Pass) (any, error) {
 					if name.Name == "_" {
 						continue
 					}
-					if isUsed(fn, name.Name) && !hasNilCheck(fn, name.Name) {
+					if isUsed(fn, name.Name) && !hasNilCheck(fn, name.Name) &&
+						!storedInOptionalField(pass, fn, pass.TypesInfo.ObjectOf(name), optional) {
 						unguarded = append(unguarded, name.Name)
 					}
 				}
@@ -77,6 +79,67 @@ func run(pass *analysis.Pass) (any, error) {
 		}
 	}
 	return nil, nil
+}
+
+// nilCheckedFields returns struct fields that package code compares with nil.
+// A dependency stored in such a field is optional: its users handle nil.
+func nilCheckedFields(pass *analysis.Pass) map[*types.Var]bool {
+	fields := make(map[*types.Var]bool)
+	for _, file := range pass.Files {
+		if moovutil.IsTestFile(pass.Fset.Position(file.Package).Filename) {
+			continue
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			bin, ok := n.(*ast.BinaryExpr)
+			if !ok || (bin.Op != token.EQL && bin.Op != token.NEQ) {
+				return true
+			}
+			if sel, ok := comparedWithNil(pass, bin).(*ast.SelectorExpr); ok {
+				if field, ok := pass.TypesInfo.ObjectOf(sel.Sel).(*types.Var); ok && field.IsField() {
+					fields[field] = true
+				}
+			}
+			return true
+		})
+	}
+	return fields
+}
+
+// storedInOptionalField reports whether fn stores param in a field that
+// package code nil-checks, through a keyed literal or a field assignment.
+func storedInOptionalField(pass *analysis.Pass, fn *ast.FuncDecl, param types.Object, optional map[*types.Var]bool) bool {
+	isParam := func(e ast.Expr) bool {
+		id, ok := e.(*ast.Ident)
+		return ok && pass.TypesInfo.ObjectOf(id) == param
+	}
+	isOptional := func(e ast.Expr) bool {
+		var id *ast.Ident
+		switch e := e.(type) {
+		case *ast.Ident:
+			id = e
+		case *ast.SelectorExpr:
+			id = e.Sel
+		default:
+			return false
+		}
+		field, ok := pass.TypesInfo.ObjectOf(id).(*types.Var)
+		return ok && optional[field]
+	}
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.KeyValueExpr:
+			found = found || (isParam(n.Value) && isOptional(n.Key))
+		case *ast.AssignStmt:
+			for i, lhs := range n.Lhs {
+				if i < len(n.Rhs) && isParam(n.Rhs[i]) && isOptional(lhs) {
+					found = true
+				}
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 func isDelegating(fn *ast.FuncDecl) bool {

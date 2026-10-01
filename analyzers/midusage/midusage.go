@@ -9,25 +9,39 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name: "midusage",
-	Doc:  "detects mid.MustParseID usage outside test files",
-	Run:  run,
+// Config holds opt-in extensions. The base checks always run.
+type Config struct {
+	// StringCompare also flags a.String() == b.String() on two mid.IDs and
+	// id.String() == "" zero checks.
+	StringCompare bool `json:"stringcompare"`
 }
 
-func run(pass *analysis.Pass) (any, error) {
+func New(cfg Config) *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name: "midusage",
+		Doc:  "detects mid.MustParseID usage outside test files",
+	}
+	a.Flags.BoolVar(&cfg.StringCompare, "stringcompare", cfg.StringCompare, "also flag mid.ID comparisons through String()")
+	a.Run = func(pass *analysis.Pass) (any, error) { return run(pass, cfg) }
+	return a
+}
+
+func run(pass *analysis.Pass, cfg Config) (any, error) {
 	if !moovutil.IsServicePackage(pass.Pkg.Path()) {
 		return nil, nil
 	}
 
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
-			if comparison, ok := n.(*ast.BinaryExpr); ok && (comparison.Op == token.EQL || comparison.Op == token.NEQ) &&
-				(isMidID(pass.TypesInfo.TypeOf(comparison.X)) || isMidID(pass.TypesInfo.TypeOf(comparison.Y))) {
-				pass.Report(analysis.Diagnostic{
-					Pos:     comparison.Pos(),
-					Message: "mid.ID values must use Equals instead of == or !=",
-				})
+			if comparison, ok := n.(*ast.BinaryExpr); ok && (comparison.Op == token.EQL || comparison.Op == token.NEQ) {
+				if isMidID(pass.TypesInfo.TypeOf(comparison.X)) || isMidID(pass.TypesInfo.TypeOf(comparison.Y)) {
+					pass.Report(analysis.Diagnostic{
+						Pos:     comparison.Pos(),
+						Message: "mid.ID values must use Equals instead of == or !=",
+					})
+				} else if cfg.StringCompare {
+					checkStringCompare(pass, comparison)
+				}
 			}
 
 			if moovutil.IsTestFile(pass.Fset.Position(file.Package).Filename) {
@@ -56,6 +70,37 @@ func run(pass *analysis.Pass) (any, error) {
 		})
 	}
 	return nil, nil
+}
+
+func checkStringCompare(pass *analysis.Pass, cmp *ast.BinaryExpr) {
+	x, y := isIDString(pass, cmp.X), isIDString(pass, cmp.Y)
+	switch {
+	case x && y:
+		pass.Reportf(cmp.Pos(), "compare mid.ID values with Equals, not through String()")
+	case x && isEmptyString(pass, cmp.Y), y && isEmptyString(pass, cmp.X):
+		pass.Reportf(cmp.Pos(), "use IsEmpty() on the mid.ID instead of comparing String() with \"\"")
+	}
+}
+
+func isIDString(pass *analysis.Pass, e ast.Expr) bool {
+	call, ok := ast.Unparen(e).(*ast.CallExpr)
+	if !ok || len(call.Args) != 0 {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "String" {
+		return false
+	}
+	t := pass.TypesInfo.TypeOf(sel.X)
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	return isMidID(t)
+}
+
+func isEmptyString(pass *analysis.Pass, e ast.Expr) bool {
+	tv := pass.TypesInfo.Types[e]
+	return tv.Value != nil && tv.Value.ExactString() == `""`
 }
 
 func isMidID(t types.Type) bool {

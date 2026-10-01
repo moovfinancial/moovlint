@@ -7,5 +7,9 @@ import (
 )
 
 func TestAnalyzer(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), Analyzer, "testdata/timeinject")
+	analysistest.Run(t, analysistest.TestData(), New(Config{}), "testdata/timeinject")
+}
+
+func TestTimers(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), New(Config{Timers: true}), "testdata/timeinject/timers")
 }
