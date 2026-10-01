@@ -3,6 +3,7 @@ package spanerrors
 import (
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"strings"
@@ -18,7 +19,7 @@ type Config struct {
 func New(cfg Config) *analysis.Analyzer {
 	a := &analysis.Analyzer{
 		Name: "spanerrors",
-		Doc:  "checks that each error return in a function which creates a span records the error with telemetry.RecordError first (advisory, opt-in)",
+		Doc:  "checks that an error created in a function which creates a span is recorded there with telemetry.RecordError; errors passed up from callees are not flagged (advisory, opt-in)",
 	}
 	a.Flags.BoolVar(&cfg.Enabled, "enabled", cfg.Enabled, "enable advisory span error recording checks")
 	a.Run = func(pass *analysis.Pass) (any, error) {
@@ -97,7 +98,7 @@ func checkReturns(pass *analysis.Pass, fn *ast.FuncDecl, spanPos token.Pos) {
 	}
 
 	for _, ret := range returns {
-		if ret.Pos() < spanPos || !returnsError(pass, ret) || containsRecord(pass, ret) {
+		if ret.Pos() < spanPos || !returnsOriginError(pass, ret) || containsRecord(pass, ret) {
 			continue
 		}
 		if coveredBy(records, ret) {
@@ -105,10 +106,49 @@ func checkReturns(pass *analysis.Pass, fn *ast.FuncDecl, spanPos token.Pos) {
 		}
 		pass.Report(analysis.Diagnostic{
 			Pos: ret.Pos(),
-			Message: fmt.Sprintf("%s creates a span but this return does not record the error; call telemetry.RecordError "+
-				"(or RecordErrorAtLow for expected errors) before returning", fn.Name.Name),
+			Message: fmt.Sprintf("%s creates this error but does not record it; record it where it originates with "+
+				"telemetry.RecordError (or RecordErrorAt<Level> to set the alert level)", fn.Name.Name),
 		})
 	}
+}
+
+// returnsOriginError reports whether ret returns an error created right here:
+// errors.New, fmt.Errorf without %w, or errors.Flag on such an error. Errors
+// passed up from a callee were recorded where they started, so recording
+// them again would duplicate the exception event.
+func returnsOriginError(pass *analysis.Pass, ret *ast.ReturnStmt) bool {
+	for _, res := range ret.Results {
+		if isOriginError(pass, res) {
+			return true
+		}
+	}
+	return false
+}
+
+func isOriginError(pass *analysis.Pass, expr ast.Expr) bool {
+	call, ok := ast.Unparen(expr).(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkg := moovutil.SelectorPackagePath(pass, sel)
+	isErrors := pkg == "errors" || moovutil.IsErrorsPackage(pkg)
+	switch {
+	case sel.Sel.Name == "New" && isErrors:
+		return true
+	case sel.Sel.Name == "Errorf" && pkg == "fmt":
+		if len(call.Args) == 0 {
+			return false
+		}
+		tv := pass.TypesInfo.Types[call.Args[0]]
+		return tv.Value != nil && tv.Value.Kind() == constant.String && !strings.Contains(constant.StringVal(tv.Value), "%w")
+	case sel.Sel.Name == "Flag" && moovutil.IsErrorsPackage(pkg):
+		return len(call.Args) > 0 && isOriginError(pass, call.Args[0])
+	}
+	return false
 }
 
 func coveredBy(records []record, ret *ast.ReturnStmt) bool {
@@ -146,19 +186,6 @@ func innermostScope(stack []ast.Node) ast.Node {
 		}
 	}
 	return stack[0]
-}
-
-func returnsError(pass *analysis.Pass, ret *ast.ReturnStmt) bool {
-	for _, res := range ret.Results {
-		if isNil(res) {
-			continue
-		}
-		t := pass.TypesInfo.TypeOf(res)
-		if t != nil && types.Implements(t, errorIface) {
-			return true
-		}
-	}
-	return false
 }
 
 func containsRecord(pass *analysis.Pass, ret *ast.ReturnStmt) bool {
@@ -217,9 +244,4 @@ func isRecordCall(pass *analysis.Pass, call *ast.CallExpr) bool {
 	}
 	return (name == "RecordError" || name == "SetStatus") &&
 		(pkgPath == "go.opentelemetry.io/otel/trace" || strings.HasSuffix(pkgPath, "/otel/trace"))
-}
-
-func isNil(expr ast.Expr) bool {
-	id, ok := expr.(*ast.Ident)
-	return ok && id.Name == "nil"
 }
