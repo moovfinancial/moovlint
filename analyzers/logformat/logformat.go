@@ -11,7 +11,7 @@ import (
 
 var Analyzer = &analysis.Analyzer{
 	Name: "logformat",
-	Doc:  "detects %w verbs in Moov logger format strings; wrapping verbs are only valid in fmt.Errorf, use %v or %s",
+	Doc:  "detects %w verbs in Moov logger format strings; wrapping verbs are only valid in fmt.Errorf and LogErrorf, use %v or %s",
 	Run:  run,
 }
 
@@ -35,7 +35,8 @@ func run(pass *analysis.Pass) (any, error) {
 				return true
 			}
 			name := sel.Sel.Name
-			if len(name) < 2 || !strings.HasSuffix(name, "f") {
+			// LogErrorf builds its error with fmt.Errorf, so %w is valid there.
+			if name == "LogErrorf" || len(name) < 2 || !strings.HasSuffix(name, "f") {
 				return true
 			}
 			if !moovutil.IsMoovLogPackage(moovutil.SelectorPackagePath(pass, sel)) {
@@ -51,7 +52,7 @@ func run(pass *analysis.Pass) (any, error) {
 			if strings.Contains(lit.Value, "%w") {
 				pass.Report(analysis.Diagnostic{
 					Pos:     call.Pos(),
-					Message: "%w is only valid in fmt.Errorf; logger format strings must use %v or %s",
+					Message: "%w is only valid in fmt.Errorf and LogErrorf; logger format strings must use %v or %s",
 				})
 			}
 			return true

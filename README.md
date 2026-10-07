@@ -27,7 +27,7 @@ Custom [golangci-lint module plugin](https://golangci-lint.run/docs/plugins/modu
 | `requiregoroutine` | shipping | Detects `require.*` and `t.Fatal`/`FailNow` calls inside goroutine closures (go statements, httptest handlers, callbacks) in test files. |
 | `spanname` | shipping | Checks span names passed to `telemetry.StartSpan`/`StartLinkedRootSpan`/`SetName` are lower-kebab-case. |
 | `testsleep` | advisory, opt-in | Detects `time.Sleep` used for synchronization in test files; suggests `require.Eventually` or an injected clock. |
-| `logformat` | shipping | Detects `%w` verbs in Moov logger format strings; wrapping verbs are only valid in `fmt.Errorf`. |
+| `logformat` | shipping | Detects `%w` verbs in Moov logger format strings; wrapping verbs are only valid in `fmt.Errorf` and `LogErrorf`. |
 | `moneyfloat` | shipping | Detects float types used for monetary values (fields and params named amount, balance, fee, or total). |
 | `spanerrors` | advisory, opt-in | Checks that functions which create a span record returned errors with `telemetry.RecordError` before returning. |
 | `mapderef` | advisory, opt-in | Detects `m[k].Field` dereferences on maps of pointers or interfaces without a comma-ok check. |
