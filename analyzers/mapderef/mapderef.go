@@ -51,6 +51,11 @@ func run(pass *analysis.Pass) (any, error) {
 }
 
 func isNilableElem(pass *analysis.Pass, idx *ast.IndexExpr) bool {
+	if xt := pass.TypesInfo.TypeOf(idx.X); xt == nil {
+		return false
+	} else if _, ok := xt.Underlying().(*types.Map); !ok {
+		return false
+	}
 	t := pass.TypesInfo.TypeOf(idx)
 	if t == nil {
 		return false

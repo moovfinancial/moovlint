@@ -7,5 +7,9 @@ import (
 )
 
 func TestAnalyzer(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), Analyzer, "testdata/midusage")
+	analysistest.Run(t, analysistest.TestData(), New(Config{}), "testdata/midusage")
+}
+
+func TestStringCompare(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), New(Config{StringCompare: true}), "testdata/midusage/stringcompare")
 }

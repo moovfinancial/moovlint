@@ -8,13 +8,24 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name: "subtestassert",
-	Doc:  "detects assertion objects created from the outer test's t used inside t.Run closures; failures bypass the subtest",
-	Run:  run,
+// Config holds opt-in extensions. The base check always runs.
+type Config struct {
+	// OuterT also flags uses of an outer *testing.T inside a t.Run closure,
+	// directly or through a captured struct field.
+	OuterT bool `json:"outert"`
 }
 
-func run(pass *analysis.Pass) (any, error) {
+func New(cfg Config) *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name: "subtestassert",
+		Doc:  "detects assertion objects created from the outer test's t used inside t.Run closures; failures bypass the subtest",
+	}
+	a.Flags.BoolVar(&cfg.OuterT, "outert", cfg.OuterT, "also flag the outer *testing.T used inside t.Run closures")
+	a.Run = func(pass *analysis.Pass) (any, error) { return run(pass, cfg) }
+	return a
+}
+
+func run(pass *analysis.Pass, cfg Config) (any, error) {
 	if !moovutil.IsServicePackage(pass.Pkg.Path()) {
 		return nil, nil
 	}
@@ -41,6 +52,9 @@ func run(pass *analysis.Pass) (any, error) {
 					continue
 				}
 				checkSubtestBody(pass, lit)
+				if cfg.OuterT {
+					checkOuterT(pass, lit)
+				}
 			}
 			return true
 		})
@@ -76,6 +90,51 @@ func checkSubtestBody(pass *analysis.Pass, lit *ast.FuncLit) {
 		})
 		return true
 	})
+}
+
+// checkOuterT flags *testing.T values declared outside the subtest closure
+// and used inside it: the outer t itself, or a field such as scope.T.
+func checkOuterT(pass *analysis.Pass, lit *ast.FuncLit) {
+	outside := func(id *ast.Ident) bool {
+		obj := pass.TypesInfo.ObjectOf(id)
+		return obj != nil && obj.Parent() != types.Universe && (obj.Pos() < lit.Pos() || obj.Pos() >= lit.End())
+	}
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		if inner, ok := n.(*ast.FuncLit); ok && hasTestingTParam(pass, inner) {
+			return false
+		}
+		switch e := n.(type) {
+		case *ast.SelectorExpr:
+			if !isTestingT(pass.TypesInfo.TypeOf(e)) {
+				return true
+			}
+			if root, ok := ast.Unparen(e.X).(*ast.Ident); ok && outside(root) {
+				reportOuterT(pass, e)
+			}
+			return false
+		case *ast.Ident:
+			if v, ok := pass.TypesInfo.ObjectOf(e).(*types.Var); ok && !v.IsField() && isTestingT(v.Type()) && outside(e) {
+				reportOuterT(pass, e)
+			}
+		}
+		return true
+	})
+}
+
+func reportOuterT(pass *analysis.Pass, n ast.Node) {
+	pass.Report(analysis.Diagnostic{
+		Pos:     n.Pos(),
+		Message: "the outer test's t is used inside t.Run; use the subtest's t so failures stop the right test",
+	})
+}
+
+func isTestingT(t types.Type) bool {
+	ptr, ok := t.(*types.Pointer)
+	if !ok {
+		return false
+	}
+	named, ok := ptr.Elem().(*types.Named)
+	return ok && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == "testing" && named.Obj().Name() == "T"
 }
 
 func collectLocalDefs(lit *ast.FuncLit) map[string]bool {

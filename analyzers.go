@@ -6,6 +6,8 @@ import (
 	"github.com/moovfinancial/moovlint/analyzers/controllerassert"
 	"github.com/moovfinancial/moovlint/analyzers/ctornilguard"
 	"github.com/moovfinancial/moovlint/analyzers/enumcast"
+	"github.com/moovfinancial/moovlint/analyzers/enumliteral"
+	"github.com/moovfinancial/moovlint/analyzers/errmsgconst"
 	"github.com/moovfinancial/moovlint/analyzers/fixtureplacement"
 	"github.com/moovfinancial/moovlint/analyzers/grpcserver"
 	"github.com/moovfinancial/moovlint/analyzers/grpcstatus"
@@ -25,12 +27,16 @@ import (
 	"github.com/moovfinancial/moovlint/analyzers/spanevents"
 	"github.com/moovfinancial/moovlint/analyzers/spanlifecycle"
 	"github.com/moovfinancial/moovlint/analyzers/spanname"
+	"github.com/moovfinancial/moovlint/analyzers/spannersql"
+	"github.com/moovfinancial/moovlint/analyzers/spannertxcapture"
 	"github.com/moovfinancial/moovlint/analyzers/spanrequired"
 	"github.com/moovfinancial/moovlint/analyzers/subtestassert"
+	"github.com/moovfinancial/moovlint/analyzers/testlog"
 	"github.com/moovfinancial/moovlint/analyzers/testsleep"
 	"github.com/moovfinancial/moovlint/analyzers/timeinject"
 	"github.com/moovfinancial/moovlint/analyzers/uuidgen"
 	"github.com/moovfinancial/moovlint/analyzers/validationflag"
+	"github.com/moovfinancial/moovlint/analyzers/wrapnil"
 	"github.com/moovfinancial/moovlint/analyzers/writegate"
 	"golang.org/x/tools/go/analysis"
 )
@@ -52,11 +58,11 @@ func configuredAnalyzers(settings Settings) []*analysis.Analyzer {
 		grpcstatus.Analyzer,
 		grpcserver.Analyzer,
 		httpdecodeflag.Analyzer,
-		midusage.Analyzer,
+		midusage.New(settings.MidUsage),
 		oteltags.Analyzer,
 		controllerassert.Analyzer,
 		repoerrorflags.New(settings.RepoErrorFlags),
-		timeinject.Analyzer,
+		timeinject.New(settings.TimeInject),
 		contextcancel.Analyzer,
 		nolintguard.Analyzer,
 		blankdiscard.Analyzer,
@@ -68,11 +74,17 @@ func configuredAnalyzers(settings Settings) []*analysis.Analyzer {
 		moneyfloat.Analyzer,
 		spanerrors.New(settings.SpanErrors),
 		mapderef.New(settings.MapDeref),
-		subtestassert.Analyzer,
+		subtestassert.New(settings.SubtestAssert),
 		ctornilguard.New(settings.Ctornilguard),
 		enumcast.New(settings.EnumCast),
 		fixtureplacement.New(settings.FixturePlacement),
 		modelplacement.New(settings.ModelPlacement),
 		writegate.New(settings.Writegate),
+		testlog.New(settings.TestLog),
+		spannertxcapture.New(settings.SpannerTxCapture),
+		spannersql.New(settings.SpannerSQL),
+		wrapnil.New(settings.WrapNil),
+		enumliteral.New(settings.EnumLiteral),
+		errmsgconst.New(settings.ErrMsgConst),
 	}
 }

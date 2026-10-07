@@ -2,6 +2,8 @@ package errors
 
 func Flag(err error, flag string) error { return err }
 
+func Is(err, target error) bool { return err == target }
+
 const (
 	NotValid         = "not_valid"
 	NotSerializable  = "not_serializable"

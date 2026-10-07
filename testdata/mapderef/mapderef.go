@@ -28,6 +28,14 @@ func goodCommaOK(projections map[string]*Projection) string {
 	return p.ID
 }
 
+func goodSlice(projections []*Projection) string {
+	return projections[0].ID
+}
+
+func goodArrayPointer(projections *[2]*Projection) string {
+	return (*projections)[0].ID
+}
+
 func goodStructValue(projections map[string]Projection) string {
 	return projections["abc"].ID
 }

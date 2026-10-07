@@ -6,13 +6,22 @@ import (
 	"github.com/golangci/plugin-module-register/register"
 	"github.com/moovfinancial/moovlint/analyzers/ctornilguard"
 	"github.com/moovfinancial/moovlint/analyzers/enumcast"
+	"github.com/moovfinancial/moovlint/analyzers/enumliteral"
+	"github.com/moovfinancial/moovlint/analyzers/errmsgconst"
 	"github.com/moovfinancial/moovlint/analyzers/fixtureplacement"
 	"github.com/moovfinancial/moovlint/analyzers/mapderef"
+	"github.com/moovfinancial/moovlint/analyzers/midusage"
 	"github.com/moovfinancial/moovlint/analyzers/mockcheck"
 	"github.com/moovfinancial/moovlint/analyzers/modelplacement"
 	"github.com/moovfinancial/moovlint/analyzers/repoerrorflags"
 	"github.com/moovfinancial/moovlint/analyzers/spanerrors"
+	"github.com/moovfinancial/moovlint/analyzers/spannersql"
+	"github.com/moovfinancial/moovlint/analyzers/spannertxcapture"
+	"github.com/moovfinancial/moovlint/analyzers/subtestassert"
+	"github.com/moovfinancial/moovlint/analyzers/testlog"
 	"github.com/moovfinancial/moovlint/analyzers/testsleep"
+	"github.com/moovfinancial/moovlint/analyzers/timeinject"
+	"github.com/moovfinancial/moovlint/analyzers/wrapnil"
 	"github.com/moovfinancial/moovlint/analyzers/writegate"
 	"golang.org/x/tools/go/analysis"
 )
@@ -32,6 +41,15 @@ type Settings struct {
 	TestSleep        testsleep.Config        `json:"testsleep"`
 	MapDeref         mapderef.Config         `json:"mapderef"`
 	Writegate        writegate.Config        `json:"writegate"`
+	TestLog          testlog.Config          `json:"testlog"`
+	SpannerTxCapture spannertxcapture.Config `json:"spannertxcapture"`
+	SpannerSQL       spannersql.Config       `json:"spannersql"`
+	WrapNil          wrapnil.Config          `json:"wrapnil"`
+	EnumLiteral      enumliteral.Config      `json:"enumliteral"`
+	ErrMsgConst      errmsgconst.Config      `json:"errmsgconst"`
+	TimeInject       timeinject.Config       `json:"timeinject"`
+	SubtestAssert    subtestassert.Config    `json:"subtestassert"`
+	MidUsage         midusage.Config         `json:"midusage"`
 }
 
 type Plugin struct {
