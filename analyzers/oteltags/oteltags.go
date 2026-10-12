@@ -108,7 +108,7 @@ func hasBadType(pass *analysis.Pass, field *ast.Field) bool {
 	if t == nil {
 		return false
 	}
-	if serializesAsScalarAttribute(t) {
+	if serializesAsScalarAttribute(t) || definesTraceAttributes(t) {
 		return false
 	}
 	return isBadAttrType(t, 0)
@@ -143,6 +143,31 @@ func serializesAsScalarAttribute(t types.Type) bool {
 		}
 	}
 	return false
+}
+
+// definesTraceAttributes reports whether t (or the struct t points to) has a
+// value-receiver TraceAttributes() []attribute.KeyValue method. The telemetry
+// library records those attributes, prefixed with the field's tag, instead of
+// recursing into the struct's fields.
+func definesTraceAttributes(t types.Type) bool {
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	obj, _, _ := types.LookupFieldOrMethod(t, false, nil, "TraceAttributes")
+	fn, ok := obj.(*types.Func)
+	if !ok {
+		return false
+	}
+	sig := fn.Signature()
+	if sig.Params().Len() != 0 || sig.Results().Len() != 1 {
+		return false
+	}
+	slice, ok := sig.Results().At(0).Type().(*types.Slice)
+	if !ok {
+		return false
+	}
+	named, ok := slice.Elem().(*types.Named)
+	return ok && named.Obj().Name() == "KeyValue"
 }
 
 func isTimeType(t types.Type) bool {
