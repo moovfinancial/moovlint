@@ -135,8 +135,8 @@ type workSummary struct {
 // Calls to functions declared in the analyzed package are followed, as are
 // interface method calls with implementations in the package (a service
 // calling its Repository interface reaches the SQL implementation): a helper
-// that only reaches auto-instrumented libraries contributes that, so
-// GetActivity -> queryScanActivity -> db.QueryContext counts as database
+// that only reaches auto-instrumented libraries contributes that, so ex.
+// templater's queryScan* -> db.QueryContext pattern counts as database
 // work rather than as an opaque call. A helper whose context calls are only
 // annotation or logging contributes nothing.
 //
