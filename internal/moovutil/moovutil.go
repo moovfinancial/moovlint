@@ -49,6 +49,24 @@ func IsTestFile(filename string) bool {
 	return strings.HasSuffix(filename, "_test.go")
 }
 
+// IsTestDoubleName returns true if a type name marks a hand-written test double: a mock, fake or
+// stub prefix in any case (MockService, fakeClient) or a Mock, Fake or Stub suffix (ServiceMock).
+// Suffixes are case sensitive so other words that also end in those letters (ex. "Paystub") do not match.
+func IsTestDoubleName(name string) bool {
+	lower := strings.ToLower(name)
+	for _, prefix := range []string{"mock", "fake", "stub"} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	for _, suffix := range []string{"Mock", "Fake", "Stub"} {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 // IsTelemetryPackage returns true if the package path is a Moov telemetry package.
 func IsTelemetryPackage(pkgPath string) bool {
 	return strings.HasSuffix(pkgPath, "/observability/telemetry") ||

@@ -39,6 +39,12 @@ func run(pass *analysis.Pass) (any, error) {
 				return true
 			}
 
+			// A test double kept next to the code it replaces (ex. service_mock.go) stands in for
+			// the real method, which is where the span belongs.
+			if moovutil.IsTestDoubleName(recvObj.Name()) {
+				return true
+			}
+
 			if !moovutil.HasContextFirstParam(pass, funcDecl) {
 				return true
 			}
@@ -259,8 +265,8 @@ func implementations(decls map[*types.Func]*ast.FuncDecl, fn *types.Func) []*ast
 
 // funcDecls indexes the package's non-test function declarations by their
 // object, so calls to same-package helpers and interface implementations can
-// be followed. Test files are left out so a mock in the test variant of the
-// package does not change the result.
+// be followed. Test files and test double methods are left out so a mock does
+// not change the result, whether it lives in a test file or next to the code.
 func funcDecls(pass *analysis.Pass) map[*types.Func]*ast.FuncDecl {
 	decls := make(map[*types.Func]*ast.FuncDecl)
 	for _, file := range pass.Files {
@@ -270,6 +276,9 @@ func funcDecls(pass *analysis.Pass) map[*types.Func]*ast.FuncDecl {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
+				continue
+			}
+			if recv := moovutil.ReceiverTypeName(pass, fn); recv != nil && moovutil.IsTestDoubleName(recv.Name()) {
 				continue
 			}
 			if obj, ok := pass.TypesInfo.Defs[fn.Name].(*types.Func); ok {
